@@ -246,6 +246,8 @@ jobs:
           goroot="${goroot//\\//}"
           cp "${goroot}/LICENSE" "${lic}/LICENSE-Go"
           git clone -q --depth 1 --branch "${UPSTREAM_TAG}" "https://github.com/${UPSTREAM_REPO}.git" "${work}/llama.cpp"
+          # The wheel build and the retag stamp every entry with the commit time of the llama.cpp tag.
+          bash tools/wheel-build/source_date_epoch.sh "${work}/llama.cpp" >> "$GITHUB_ENV"
           # A release-asset cell configures the tag with the BoringSSL flag that the four release jobs
           # share, and no compile; the collector reads the licence files of what that fetched.
           # A source cell sets LLAMA_OPENSSL=OFF and LLAMA_BUILD_UI=OFF, so it links no fetched TLS code and no web UI.
@@ -697,7 +699,10 @@ jobs:
       - name: Repack the upstream archive into the wheel tree
         run: |
           set -euo pipefail
-          python tools/wheel-build/repack_mistralrs.py "upstream/${ASSET}" "${WHEEL_TREE}/lilbee_engine_mistral_rs/bin"
+          # The script prints SOURCE_DATE_EPOCH; the wheel build and the retag read it from the job env.
+          python tools/wheel-build/repack_mistralrs.py "upstream/${ASSET}" "${WHEEL_TREE}/lilbee_engine_mistral_rs/bin" \
+            | tr -d '\r' >> "$GITHUB_ENV"
+          grep -c '^SOURCE_DATE_EPOCH=' "$GITHUB_ENV"
           ls -lR "${WHEEL_TREE}/lilbee_engine_mistral_rs/bin"
 
       - name: Add the Visual C++ runtime beside the exe
@@ -940,6 +945,8 @@ jobs:
           export RUSTFLAGS="-C target-cpu=apple-m1"
           (cd "${RUNNER_TEMP}/tei" && cargo build --release --locked --bin text-embeddings-router --no-default-features --features candle,metal,http)
           python -m pip install -q build wheel "delocate==0.13.0"
+          # The wheel build, the retag and delocate stamp every entry with the commit time of the source.
+          export "$(bash tools/wheel-build/source_date_epoch.sh "${RUNNER_TEMP}/tei")"
           bash tools/wheel-build/tei_wheel.sh "${RUNNER_TEMP}/tei" "${RUNNER_TEMP}/tei/target/release/text-embeddings-router" \
             candle,metal,http aarch64-apple-darwin "${BACKEND}" "${PLATFORM}" out
           # Fails when any Mach-O needs a newer macOS than the tag (macosx_14_0) allows.
