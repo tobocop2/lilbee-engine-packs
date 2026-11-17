@@ -1,0 +1,51 @@
+name: Check the pack build
+
+# Runs the lilbee tests that read the build workflow of this repository.
+# The tests come from the lilbee commit in LILBEE_REF. The pin must name a lilbee commit
+# that holds tests/_pack_workflow.py.
+on:
+  pull_request:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  workflow-tests:
+    name: Workflow tests
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          path: packs
+
+      - name: Read the pin
+        id: pin
+        run: echo "ref=$(tr -d '[:space:]' < packs/LILBEE_REF)" >> "$GITHUB_OUTPUT"
+
+      - uses: actions/checkout@v7
+        with:
+          repository: tobocop2/lilbee
+          ref: ${{ steps.pin.outputs.ref }}
+          path: lilbee
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v7
+
+      - name: Install lilbee
+        working-directory: lilbee
+        run: uv sync --locked
+
+      - name: Run the tests
+        working-directory: lilbee
+        env:
+          ENGINE_PACKS_WORKFLOW: ${{ github.workspace }}/packs/.github/workflows/build-packs.yml
+        run: >-
+          uv run pytest -p no:cacheprovider -q
+          tests/test_llama_pack_backend.py
+          tests/test_mistralrs_pack_tools.py
+          tests/test_tei_wheel_tools.py
+          tests/providers/fleet/test_engine_store.py
