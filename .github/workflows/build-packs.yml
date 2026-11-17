@@ -1,9 +1,9 @@
 name: Build and publish engine packs
 
 # Builds the engine wheels (llama.cpp, mistral.rs, text-embeddings-inference) from the lilbee
-# tree at the commit in LILBEE_REF, keeps each wheel as a run artifact, and publishes one release
-# of this repository for the batch. The release uses the GITHUB_TOKEN of this repository.
-# Raise the pin by editing LILBEE_REF in a commit to this repository.
+# tree at the lilbee tag in LILBEE_REF, keeps each wheel as a run artifact, and publishes one
+# release of this repository for the batch. The release uses the GITHUB_TOKEN of this repository.
+# Raise the pin by editing LILBEE_REF to a new lilbee tag. The plan job fails when the tag is missing.
 # The publish job never edits a release: a tag that exists stops the run.
 on:
   workflow_dispatch:
@@ -51,8 +51,12 @@ jobs:
         run: |
           set -euo pipefail
           ref="$(tr -d '[:space:]' < LILBEE_REF)"
-          [[ "${ref}" =~ ^[0-9a-f]{40}$ ]] || { echo "::error::LILBEE_REF must hold a full commit hash"; exit 1; }
-          echo "ref=${ref}" >> "$GITHUB_OUTPUT"
+          [[ "${ref}" =~ ^[A-Za-z0-9._-]+$ ]] || { echo "::error::LILBEE_REF must hold one lilbee tag name"; exit 1; }
+          if ! git ls-remote --exit-code --tags https://github.com/tobocop2/lilbee "refs/tags/${ref}" > /dev/null; then
+            echo "::error::The lilbee tag ${ref} named in LILBEE_REF does not exist. Create the tag on the lilbee commit to build from, or name another tag."
+            exit 1
+          fi
+          echo "ref=refs/tags/${ref}" >> "$GITHUB_OUTPUT"
 
   cell:
     name: ${{ matrix.cell }}

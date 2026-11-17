@@ -1,8 +1,8 @@
 name: Check the pack build
 
 # Runs the lilbee tests that read the build workflow of this repository.
-# The tests come from the lilbee commit in LILBEE_REF. The pin must name a lilbee commit
-# that holds tests/_pack_workflow.py.
+# The tests come from the lilbee tag in LILBEE_REF. The tag must hold tests/_pack_workflow.py.
+# The tests read build-packs.yml of this checkout through ENGINE_PACKS_WORKFLOW.
 on:
   pull_request:
   push:
@@ -24,13 +24,17 @@ jobs:
 
       - name: Read the pin
         id: pin
-        run: echo "ref=$(tr -d '[:space:]' < packs/LILBEE_REF)" >> "$GITHUB_OUTPUT"
+        run: echo "ref=refs/tags/$(tr -d '[:space:]' < packs/LILBEE_REF)" >> "$GITHUB_OUTPUT"
 
       - uses: actions/checkout@v7
         with:
           repository: tobocop2/lilbee
           ref: ${{ steps.pin.outputs.ref }}
           path: lilbee
+
+      - name: Require the tests that read this workflow
+        run: |
+          test -f lilbee/tests/_pack_workflow.py || { echo "::error::The lilbee tag in LILBEE_REF has no tests/_pack_workflow.py. The tests would read the old in-tree workflow. Name a newer tag."; exit 1; }
 
       - name: Install uv
         uses: astral-sh/setup-uv@v7
