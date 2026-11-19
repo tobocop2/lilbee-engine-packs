@@ -79,7 +79,7 @@ jobs:
       matrix:
         include:
           - cell: windows-x86_64-cpu
-            build_number: 2
+            build_number: 3
             backend: cpu
             runner: windows-2022
             asset: llama-b12032-bin-win-cpu-x64.zip
@@ -87,7 +87,7 @@ jobs:
             license: MIT AND Apache-2.0 WITH LLVM-exception AND LicenseRef-Microsoft-VC-Runtime
             timeout: 45
           - cell: windows-x86_64-cuda
-            build_number: 2
+            build_number: 3
             backend: cuda
             runner: windows-2022
             asset: llama-b12032-bin-win-cuda-12.4-x64.zip
@@ -96,7 +96,7 @@ jobs:
             license: MIT AND LicenseRef-NVIDIA-CUDA-EULA AND Apache-2.0 WITH LLVM-exception AND LicenseRef-Microsoft-VC-Runtime
             timeout: 60
           - cell: macos-arm64-metal
-            build_number: 1
+            build_number: 2
             backend: metal
             runner: macos-15
             asset: llama-b12032-bin-macos-arm64.tar.gz
@@ -104,7 +104,7 @@ jobs:
             license: MIT
             timeout: 45
           - cell: linux-x86_64-cuda
-            build_number: 1
+            build_number: 2
             backend: cuda
             runner: ubuntu-22.04
             build: source
@@ -112,7 +112,7 @@ jobs:
             license: MIT AND LicenseRef-NVIDIA-CUDA-EULA
             timeout: 350
           - cell: linux-x86_64-cpu
-            build_number: 1
+            build_number: 2
             backend: cpu
             runner: ubuntu-22.04
             build: source
@@ -120,7 +120,7 @@ jobs:
             license: MIT
             timeout: 120
           - cell: windows-x86_64-vulkan
-            build_number: 2
+            build_number: 3
             backend: vulkan
             runner: windows-2022
             asset: llama-b12032-bin-win-vulkan-x64.zip
@@ -128,7 +128,7 @@ jobs:
             license: MIT AND Apache-2.0 WITH LLVM-exception AND LicenseRef-Microsoft-VC-Runtime
             timeout: 45
           - cell: linux-x86_64-vulkan
-            build_number: 1
+            build_number: 2
             backend: vulkan
             runner: ubuntu-22.04
             build: source
@@ -136,7 +136,7 @@ jobs:
             license: MIT
             timeout: 120
           - cell: linux-x86_64-rocm
-            build_number: 1
+            build_number: 2
             backend: rocm
             runner: ubuntu-22.04
             build: source
