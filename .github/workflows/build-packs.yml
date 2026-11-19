@@ -1192,10 +1192,11 @@ jobs:
           }
           if os.environ["BACKEND"] == "cuda":
               notices["dist-info/licenses/NOTICE-NVIDIA-CUDA"] = ["Attachment A", "libcublasLt", "libcudart", "libcublas"]
+          texts = {suffix: read(suffix) for suffix in notices}
           for suffix, wanted in notices.items():
-              text = read(suffix)
-              problems += [f"{suffix} lacks the text: {w}" for w in wanted if w not in text]
-          if os.environ["BACKEND"] == "cuda" and len(read("dist-info/licenses/NOTICE-NVIDIA-CUDA")) < 20000:
+              problems += [f"{suffix} lacks the text: {w}" for w in wanted if w not in texts[suffix]]
+          nvidia = "dist-info/licenses/NOTICE-NVIDIA-CUDA"
+          if os.environ["BACKEND"] == "cuda" and len(texts[nvidia]) < 20000:
               problems.append("NOTICE-NVIDIA-CUDA is shorter than the EULA")
           # Apache-2.0 section 4(a): the wheel carries one copy of the licence text.
           phrase = "TERMS AND CONDITIONS FOR USE, REPRODUCTION"
