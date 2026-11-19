@@ -4,7 +4,7 @@ name: Build and publish engine packs
 # tree at the lilbee tag in LILBEE_REF, keeps each wheel as a run artifact, and publishes one
 # release of this repository for the batch. The release uses the GITHUB_TOKEN of this repository.
 # Raise the pin by editing LILBEE_REF to a new lilbee tag. The plan job fails when the tag is missing.
-# The publish job never edits a release: a tag that exists stops the run.
+# The publish job never edits a release: a tag that exists, or a wheel name that any release ships, stops the run.
 on:
   workflow_dispatch:
     inputs:
