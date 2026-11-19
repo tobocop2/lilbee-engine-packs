@@ -22,6 +22,14 @@ jobs:
         with:
           path: packs
 
+      # actionlint runs shellcheck on every run step, which the runner image provides.
+      - name: Lint the workflows
+        working-directory: packs
+        run: |
+          set -euo pipefail
+          bash <(curl -fsSL --retry 5 https://raw.githubusercontent.com/rhysd/actionlint/v1.7.12/scripts/download-actionlint.bash) 1.7.12
+          ./actionlint -color .github/workflows/build-packs.yml .github/workflows/check.yml
+
       - name: Read the pin
         id: pin
         run: echo "ref=refs/tags/$(tr -d '[:space:]' < packs/LILBEE_REF)" >> "$GITHUB_OUTPUT"
@@ -49,7 +57,9 @@ jobs:
           ENGINE_PACKS_WORKFLOW: ${{ github.workspace }}/packs/.github/workflows/build-packs.yml
         run: >-
           uv run pytest -p no:cacheprovider -q
+          tests/test_ik_llama_adapter.py
           tests/test_llama_pack_backend.py
           tests/test_mistralrs_pack_tools.py
+          tests/test_source_date_epoch.py
           tests/test_tei_wheel_tools.py
           tests/providers/fleet/test_engine_store.py

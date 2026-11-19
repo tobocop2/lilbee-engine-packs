@@ -1,6 +1,6 @@
 name: Build and publish engine packs
 
-# Builds the engine wheels (llama.cpp, mistral.rs, text-embeddings-inference) from the lilbee
+# Builds the engine wheels (llama.cpp, mistral.rs, text-embeddings-inference, ik_llama.cpp) from the lilbee
 # tree at the lilbee tag in LILBEE_REF, keeps each wheel as a run artifact, and publishes one
 # release of this repository for the batch. The release uses the GITHUB_TOKEN of this repository.
 # Raise the pin by editing LILBEE_REF to a new lilbee tag. The plan job fails when the tag is missing.
@@ -11,7 +11,7 @@ on:
       engine:
         description: The engine to build.
         type: choice
-        options: [all, llama, mistralrs, tei]
+        options: [all, llama, mistralrs, tei, ik]
         default: all
       tag_suffix:
         description: Optional text after the date in the release tag, such as tei or llama-gpu.
@@ -37,7 +37,8 @@ env:
   CARGO_ABOUT_VERSION: 0.9.3
 
 jobs:
-  # The engine jobs run when needs.plan.outputs.engine is "all" or their own name.
+  # The llama and mistralrs jobs run when needs.plan.outputs.engine is "all" or their own name.
+  # The tei and ik jobs run only when it is their own name: "all" does not start them.
   plan:
     name: Pick the engine and the lilbee commit
     runs-on: ubuntu-latest
@@ -1028,9 +1029,224 @@ jobs:
           if-no-files-found: error
           retention-days: 7
 
+  # The ik_llama.cpp server has no release assets: each cell builds the commit named here.
+  # A test in the lilbee repository holds UPSTREAM_COMMIT equal to the commit that the lilbee adapter pins.
+  ik:
+    name: ik-${{ matrix.cell }}
+    needs: plan
+    if: needs.plan.outputs.engine == 'ik'
+    runs-on: ubuntu-22.04
+    timeout-minutes: 350
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - cell: linux-x86_64-cpu
+            build_number: 3
+            backend: cpu
+            license: MIT
+          - cell: linux-x86_64-cuda
+            build_number: 2
+            backend: cuda
+            license: MIT AND LicenseRef-NVIDIA-CUDA-EULA
+    defaults:
+      run:
+        shell: bash
+    env:
+      UPSTREAM_REPO: ikawrakow/ik_llama.cpp
+      UPSTREAM_COMMIT: 13cffc006b82e03e4d89cbb8c7327f0255ae3d18
+      GH_TOKEN: ${{ github.token }}
+      LICENSE_TERMS: ${{ matrix.license }}
+      BUILD_NUMBER: ${{ matrix.build_number }}
+      BACKEND: ${{ matrix.backend }}
+      PLATFORM: manylinux_2_34_x86_64
+      WHEEL_DIR: packaging/engine-wheel-ik-llama-cpp
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          repository: tobocop2/lilbee
+          ref: ${{ needs.plan.outputs.lilbee_ref }}
+
+      - name: Free disk space for the build
+        run: |
+          set -euo pipefail
+          sudo rm -rf /usr/share/dotnet /opt/ghc /usr/local/lib/android /opt/hostedtoolcache
+          df -h / | tail -1
+
+      - uses: actions/setup-python@v7
+        with:
+          python-version: "3.12"
+
+      # The script fetches the commit, builds the server, copies the NVIDIA files unchanged (cuda), and writes cuda-libs.sha256 and NOTICE-NVIDIA-CUDA.
+      - name: Build ik_llama.cpp in the manylinux_2_34 image
+        run: |
+          set -euo pipefail
+          mkdir -p "${WHEEL_DIR}/lilbee_engine_ik_llama_cpp/bin"
+          docker run --rm -v "${PWD}:/work" -w /work \
+            -e UPSTREAM_REPO -e UPSTREAM_COMMIT -e BACKEND \
+            -e "BIN_DIR=/work/${WHEEL_DIR}/lilbee_engine_ik_llama_cpp/bin" \
+            -e SRC_DIR=/work/ik-src \
+            -e SHA_FILE=/work/cuda-libs.sha256 \
+            -e "NOTICE_FILE=/work/${WHEEL_DIR}/NOTICE-NVIDIA-CUDA" \
+            -e "OWNER=$(id -u):$(id -g)" \
+            quay.io/pypa/manylinux_2_34_x86_64@sha256:e0b7a1bdb4a0b7d519b29b301e2d3c626a33ea78e9bb5bb1590ce2d99d0ae62f \
+            bash /work/tools/wheel-build/ik_llama_manylinux.sh
+          ls -l "${WHEEL_DIR}/lilbee_engine_ik_llama_cpp/bin"
+          if [ "${BACKEND}" = cuda ]; then cat cuda-libs.sha256; fi
+          df -h / | tail -1
+
+      - name: Collect the licences of the server and the code it carries
+        run: |
+          set -euo pipefail
+          lic="${PWD}/${WHEEL_DIR}"
+          work="$(mktemp -d)"
+          # The wheel build stamps every entry with the commit time of the ik_llama.cpp commit.
+          bash tools/wheel-build/source_date_epoch.sh ik-src >> "$GITHUB_ENV"
+          cp ik-src/LICENSE "${lic}/LICENSE-ik_llama.cpp"
+          # The server compiles in two web pages and the sqlite_modern_cpp headers, all under skipped folders.
+          bash tools/wheel-build/collect_vendored_licences.sh \
+            --ship examples/server/public/index.html.gz \
+            --ship examples/server/public_llamacpp/index_llamacpp.html.gz \
+            --ship examples/server/sqlite_modern_cpp \
+            ik-src "${lic}/THIRD-PARTY/ik_llama.cpp" "${work}/vendored-terms.txt"
+          # The wheel states every licence it carries: the cell's own terms and the vendored terms.
+          # A name that the cell already lists is not repeated.
+          terms="${LICENSE_TERMS}"
+          while IFS= read -r id; do
+            [ -n "${id}" ] || continue
+            printf '%s\n' "${terms// AND /$'\n'}" | grep -qxF "${id}" || terms="${terms} AND ${id}"
+          done < <(tr -d '\r' < "${work}/vendored-terms.txt" | sort -u)
+          echo "License-Expression: ${terms}"
+          echo "LICENSE_EXPRESSION=${terms}" >> "$GITHUB_ENV"
+          for f in "${lic}"/LICENSE-*; do test -s "${f}" || { echo "empty licence file ${f}"; exit 1; }; done
+          find "${lic}/THIRD-PARTY" -type f | wc -l
+
+      - name: Build the wheel
+        run: |
+          set -euo pipefail
+          python tools/wheel-build/stamp_engine_wheel.py "${WHEEL_DIR}/pyproject.toml" "0+git${UPSTREAM_COMMIT:0:12}" "${LICENSE_EXPRESSION}"
+          python -m pip install build wheel
+          cd "${WHEEL_DIR}"
+          grep -E '^(version|license|requires)' pyproject.toml
+          python -m build --wheel -C--build-option="--build-number=${BUILD_NUMBER}.${BACKEND}"
+          python -m wheel tags --remove --platform-tag "${PLATFORM}" dist/*.whl
+          ls dist
+
+      - name: Collect the wheel
+        run: |
+          set -euo pipefail
+          mkdir -p out
+          cp "${WHEEL_DIR}"/dist/*.whl out/
+          wheels=(out/*.whl)
+          test "${#wheels[@]}" -eq 1
+          (cd out && sha256sum "$(basename "${wheels[0]}")" > "$(basename "${wheels[0]}").sha256")
+          cat out/*.sha256
+          ls -l out
+
+      # The server links the driver library, which the runner lacks. The toolkit stub stands in for it.
+      - name: Fetch the CUDA driver stub
+        if: matrix.backend == 'cuda'
+        run: |
+          set -euo pipefail
+          mkdir -p cuda-stub
+          docker run --rm -v "${PWD}/cuda-stub:/stub" \
+            quay.io/pypa/manylinux_2_34_x86_64@sha256:e0b7a1bdb4a0b7d519b29b301e2d3c626a33ea78e9bb5bb1590ce2d99d0ae62f \
+            bash -euo pipefail -c 'curl --retry 5 --retry-all-errors -fsSL -o /etc/yum.repos.d/cuda-rhel9.repo https://developer.download.nvidia.com/compute/cuda/repos/rhel9/x86_64/cuda-rhel9.repo && dnf install -y cuda-driver-devel-12-4 && cp -L /usr/local/cuda-12.4/targets/x86_64-linux/lib/stubs/libcuda.so /stub/libcuda.so.1'
+          ls -l cuda-stub
+
+      - name: Check the wheel and start the server from it
+        run: |
+          set -euo pipefail
+          python -m venv check-venv
+          check-venv/bin/python -m pip install -q out/*.whl
+          exe="$(check-venv/bin/python -c "import lilbee_engine_ik_llama_cpp as m, pathlib; print(pathlib.Path(m.__file__).parent / 'bin' / 'llama-server')")"
+          echo "llama-server: ${exe}"
+          bindir="$(dirname "${exe}")"
+          ls -l "${bindir}"
+          # The notices, the licence expression and the Apache text are read from the wheel itself.
+          python - out/*.whl "${LICENSE_EXPRESSION}" src/lilbee/providers/fleet/engines/ik_llama.py <<'PY'
+          import ast, os, sys, zipfile
+
+          wheel_path, expression, adapter = sys.argv[1:]
+          wheel = zipfile.ZipFile(wheel_path)
+          names = wheel.namelist()
+          problems = []
+
+          def read(suffix):
+              """The text of the one wheel entry that ends with suffix."""
+              hits = [n for n in names if n.endswith(suffix)]
+              if len(hits) != 1:
+                  problems.append(f"the wheel holds {len(hits)} entries that end with {suffix}, not one")
+                  return ""
+              return wheel.read(hits[0]).decode("utf-8")
+
+          grant = "Permission is hereby granted"
+          third = "dist-info/licenses/THIRD-PARTY/ik_llama.cpp/"
+          notices = {
+              "dist-info/licenses/LICENSE-ik_llama.cpp": [grant],
+              third + "examples/server/public/index.html.gz.NOTICE": ["@license React", grant],
+              third + "examples/server/public_llamacpp/index_llamacpp.html.gz.NOTICE": ["Mozilla Foundation", "Apache License, Version 2.0"],
+              third + "vendor/nlohmann/json.hpp.NOTICE": ["Niels Lohmann", grant],
+              third + "vendor/cpp-httplib/httplib.h.NOTICE": ["Yuji Hirose", grant],
+              third + "vendor/stb/stb_image_resize2.h.NOTICE": ["Sean Barrett", "ALTERNATIVE A - MIT License", grant],
+          }
+          if os.environ["BACKEND"] == "cuda":
+              notices["dist-info/licenses/NOTICE-NVIDIA-CUDA"] = ["Attachment A", "libcublasLt", "libcudart", "libcublas"]
+          for suffix, wanted in notices.items():
+              text = read(suffix)
+              problems += [f"{suffix} lacks the text: {w}" for w in wanted if w not in text]
+          if os.environ["BACKEND"] == "cuda" and len(read("dist-info/licenses/NOTICE-NVIDIA-CUDA")) < 20000:
+              problems.append("NOTICE-NVIDIA-CUDA is shorter than the EULA")
+          # Apache-2.0 section 4(a): the wheel carries one copy of the licence text.
+          phrase = "TERMS AND CONDITIONS FOR USE, REPRODUCTION"
+          apache = [n for n in names if "dist-info/licenses/" in n and phrase in wheel.read(n).decode("utf-8", "ignore")]
+          if len(apache) != 1:
+              problems.append(f"the Apache-2.0 text is in {len(apache)} licence files, not one: {apache}")
+
+          # The licence expression of the wheel is the one the build stated and the one the lilbee pin names.
+          metadata = read(".dist-info/METADATA")
+          if f"License-Expression: {expression}\n" not in metadata:
+              problems.append(f"METADATA lacks License-Expression: {expression}")
+          consts = {}
+          for node in ast.parse(open(adapter, encoding="utf-8").read()).body:
+              if isinstance(node, ast.Assign) and isinstance(node.targets[0], ast.Name):
+                  consts[node.targets[0].id] = node.value
+          pinned = {}
+          for name in ("IK_LLAMA_COMMIT", "_CPU_LICENCES", "_CUDA_LICENCES"):
+              if name not in consts:
+                  problems.append(f"the adapter at the lilbee tag has no {name}")
+              else:
+                  pinned[name] = ast.literal_eval(consts[name])
+          if not problems:
+              want = pinned["_CUDA_LICENCES" if os.environ["BACKEND"] == "cuda" else "_CPU_LICENCES"]
+              if want != [expression]:
+                  problems.append(f"the lilbee pin names {want}, the wheel states {expression}")
+              if pinned["IK_LLAMA_COMMIT"] != os.environ["UPSTREAM_COMMIT"]:
+                  problems.append("the lilbee pin names another ik_llama.cpp commit than this job builds")
+          if problems:
+              raise SystemExit("\n".join(problems))
+          print("notices, Apache-2.0 text and licence expression: ok")
+          PY
+          if [ "${BACKEND}" = cuda ]; then
+            # The NVIDIA files must match the toolkit's files byte for byte (EULA 2.3).
+            (cd "${bindir}" && sha256sum -c "${GITHUB_WORKSPACE}/cuda-libs.sha256")
+            export LD_LIBRARY_PATH="${GITHUB_WORKSPACE}/cuda-stub"
+          fi
+          if ldd "${exe}" | grep 'not found'; then echo "llama-server has an unresolved library"; exit 1; fi
+          bash "${GITHUB_WORKSPACE}/tools/wheel-build/check_glibc_floor.sh" "${bindir}"
+          cd /
+          "${exe}" --version
+
+      - uses: actions/upload-artifact@v7
+        with:
+          name: ik-pack-${{ matrix.cell }}
+          path: out/*
+          if-no-files-found: error
+          retention-days: 7
+
   publish:
     name: Publish the release
-    needs: [plan, cell, mistralrs, tei]
+    needs: [plan, cell, mistralrs, tei, ik]
     if: ${{ inputs.publish && !cancelled() && !contains(needs.*.result, 'failure') }}
     runs-on: ubuntu-latest
     timeout-minutes: 60
