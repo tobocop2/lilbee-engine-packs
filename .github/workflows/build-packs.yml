@@ -1273,6 +1273,17 @@ jobs:
           fi
           wheels=(packs/lilbee_engine_*.whl)
           [ -e "${wheels[0]}" ] || { echo "::error::No engine wheel was built."; exit 1; }
+          # One file name holds one wheel: the record of a later release replaces the digest of an earlier one.
+          assets="$(gh api "repos/${GITHUB_REPOSITORY}/releases" --paginate --jq '.[].assets[].name')"
+          clash=0
+          for wheel in "${wheels[@]}"; do
+            name="$(basename "${wheel}")"
+            if grep -qxF "${name}" <<< "${assets}"; then
+              echo "::error::The file ${name} is already an asset of a release. Raise its build number."
+              clash=1
+            fi
+          done
+          [ "${clash}" -eq 0 ] || exit 1
           gh release create "${tag}" "${wheels[@]}" --repo "${GITHUB_REPOSITORY}" --latest=false \
             --title "${tag}" --notes "Engine packs built from lilbee tag ${LILBEE_TAG} (commit ${LILBEE_COMMIT})."
           echo "Published ${tag}" >> "$GITHUB_STEP_SUMMARY"
