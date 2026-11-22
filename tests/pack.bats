@@ -319,11 +319,15 @@ echo "${RUNNER_TEMP}/bin" >> "$GITHUB_PATH"' ]
 }
 
 @test "the output folder of each mistralrs and tei cell is the folder that the job uploads" {
-  local cell
-  while read -r cell; do
-    STUB_UNAME_S=Plan9 run bash "${SCRIPT}" "${cell}" "${REPO_ROOT}/cells.yml"
-    [[ "$output" == *"cell ${cell} needs "* ]]
-  done < <(yq -r '.engines[] | select(.pins.MISTRALRS_TAG or .pins.TEI_TAG) | .cells[].cell' "${REPO_ROOT}/cells.yml")
+  local engine cell cells
+  for engine in mistralrs tei; do
+    cells="$(yq -r ".engines.${engine}.cells[].cell" "${REPO_ROOT}/cells.yml")"
+    [ -n "${cells}" ]
+    while read -r cell; do
+      STUB_UNAME_S=Plan9 run bash "${SCRIPT}" "${cell}" "${REPO_ROOT}/cells.yml"
+      [[ "$output" == *"cell ${cell} needs "* ]]
+    done <<< "${cells}"
+  done
 }
 
 @test "install_yq refuses a download with another digest" {
