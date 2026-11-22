@@ -1,0 +1,2 @@
+# Windows cells run the scripts and read cells.yml: a CRLF checkout would put \r in the values.
+* text=auto eol=lf

@@ -1,7 +1,7 @@
 #!/usr/bin/env bats
 # cells.yml holds the pins of each engine and the build image. build-packs.yml holds the same
-# values in its env until the build moves into scripts. A pin that differs would build one
-# version and test another, so each pin is compared here.
+# values in its env for each engine that does not build through scripts/pack.sh. A pin that differs
+# would build one version and test another, so each pin is compared here.
 
 load helpers
 
@@ -22,11 +22,15 @@ pin() {  # engine key
   done
 }
 
-@test "the mistralrs pins equal the env of the workflow" {
+@test "the mistralrs pins are in cells.yml only" {
   local key
-  for key in MISTRALRS_REPO MISTRALRS_TAG MISTRALRS_CHAT_MODEL CARGO_ABOUT_VERSION MACOSX_DEPLOYMENT_TARGET; do
-    [ "$(pin mistralrs "${key}")" = "$(yq -r ".env.${key}" "${WORKFLOW}")" ]
+  for key in MISTRALRS_REPO MISTRALRS_TAG MISTRALRS_CHAT_MODEL CARGO_ABOUT_VERSION; do
+    [[ "$(pin mistralrs "${key}")" =~ [0-9A-Za-z] ]]
+    [ "$(pin mistralrs "${key}")" != null ]
+    run grep -F "${key}" "${WORKFLOW}"
+    [ "$status" -eq 1 ]
   done
+  [ "$(pin mistralrs MACOSX_DEPLOYMENT_TARGET)" = "$(yq -r '.env.MACOSX_DEPLOYMENT_TARGET' "${WORKFLOW}")" ]
 }
 
 @test "the tei pins equal the env of the tei job" {

@@ -1,0 +1,11 @@
+#!/usr/bin/env bash
+# Stub uname for the bats tests. It answers -s and -m.
+#   STUB_UNAME_S  the system name (default Linux)
+#   STUB_UNAME_M  the machine name (default x86_64)
+case "${1:-}" in
+  -s) printf '%s\n' "${STUB_UNAME_S:-Linux}" ;;
+  -m) printf '%s\n' "${STUB_UNAME_M:-x86_64}" ;;
+  *)
+    echo "stub uname: unexpected argument: $*" >&2
+    exit 99 ;;
+esac

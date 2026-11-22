@@ -20,7 +20,7 @@ SUFFIX ?=
 LILBEE_TAG ?=
 LILBEE_COMMIT ?=
 
-.PHONY: plan publish-dry tools lint test test-lilbee check
+.PHONY: plan pack publish-dry tools lint test test-lilbee check
 
 # Print the tag, the asset names and the notes of a release, and create nothing. gh reads the releases of REPO,
 # so it needs a login. DIR holds the wheels. By default the lilbee tag and commit come from LILBEE_REF.
@@ -37,6 +37,10 @@ publish-dry:
 # Print the matrix JSON that build-packs.yml uses: make plan ENGINE=tei CELL=tei-linux-x86_64-cpu
 plan:
 	@bash scripts/plan.sh "$(ENGINE)" "$(CELL)"
+
+# Build and check one cell into dist/<id>/ on this computer: make pack CELL=mistralrs-linux-x86_64-cpu
+pack:
+	@bash scripts/pack.sh "$(CELL)"
 
 # Fail when a tool is missing or has another version. Nothing is skipped.
 tools:

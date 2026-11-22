@@ -1,0 +1,9 @@
+#!/usr/bin/env bash
+# Stub curl for the bats tests. It writes STUB_CURL_TEXT to the file after -o.
+#   STUB_CURL_TEXT  the content of the download
+while [ "$#" -gt 0 ]; do
+  case "$1" in
+    -o) printf '%s\n' "${STUB_CURL_TEXT:?}" > "$2"; shift ;;
+  esac
+  shift
+done
