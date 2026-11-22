@@ -46,11 +46,18 @@ pin() {  # engine key
   [ "$(pin tei MACOSX_DEPLOYMENT_TARGET)" = "$(yq -r '.env.MACOSX_DEPLOYMENT_TARGET' "${WORKFLOW}")" ]
 }
 
-@test "the ik pins equal the env of the ik job" {
+@test "the ik pins are in cells.yml only" {
   local key
   for key in UPSTREAM_REPO UPSTREAM_COMMIT PLATFORM; do
-    [ "$(pin ik "${key}")" = "$(yq -r ".jobs.ik.env.${key}" "${WORKFLOW}")" ]
+    [[ "$(pin ik "${key}")" =~ [0-9A-Za-z] ]]
+    [ "$(pin ik "${key}")" != null ]
   done
+  [[ "$(pin ik UPSTREAM_COMMIT)" =~ ^[0-9a-f]{40}$ ]]
+  for key in "$(pin ik UPSTREAM_REPO)" "$(pin ik UPSTREAM_COMMIT)" UPSTREAM_COMMIT; do
+    run grep -F "${key}" "${WORKFLOW}"
+    [ "$status" -eq 1 ]
+  done
+  [ "$(yq -r '.jobs.ik.env | keys | @json' "${WORKFLOW}")" = '["LILBEE_DIR","CELL"]' ]
 }
 
 @test "every manylinux image in the workflow is the image of cells.yml" {

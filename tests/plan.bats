@@ -5,6 +5,7 @@ load helpers
 
 setup() {
   use_stubs
+  unset CELL
   SCRIPT="${REPO_ROOT}/scripts/plan.sh"
   CELLS="${REPO_ROOT}/cells.yml"
   FIXTURE="${BATS_TEST_TMPDIR}/cells.yml"

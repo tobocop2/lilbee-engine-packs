@@ -1,8 +1,8 @@
 # Every build cell of the engine packs, the pins of each engine, and the build image.
 # scripts/plan.sh turns this file into the matrix of each job of build-packs.yml.
 # A cell is one row of that matrix: its keys and value types are the matrix keys of the job.
-# The pins of the engines that still build in build-packs.yml, and the image, equal the values there.
-# tests/pins.bats fails when they differ. scripts/pack.sh passes the mistralrs and tei pins to the recipe.
+# The llama pins and the image equal the values in build-packs.yml, where llama still builds.
+# tests/pins.bats fails when they differ. scripts/pack.sh passes the pins of the other engines to the recipe.
 manylinux_image: quay.io/pypa/manylinux_2_34_x86_64@sha256:e0b7a1bdb4a0b7d519b29b301e2d3c626a33ea78e9bb5bb1590ce2d99d0ae62f
 engines:
   llama:
@@ -185,6 +185,8 @@ engines:
         runner: macos-15
         platform: macosx_14_0_arm64
         timeout: 90
+  # The ik_llama.cpp server has no release assets: each cell builds the commit named here.
+  # A test in the lilbee repository holds UPSTREAM_COMMIT equal to the commit that the lilbee adapter pins.
   ik:
     pins:
       UPSTREAM_REPO: ikawrakow/ik_llama.cpp

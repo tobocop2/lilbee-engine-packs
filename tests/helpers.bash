@@ -3,7 +3,9 @@
 
 # Find the repository root and put the stubs in front of the real tools.
 # A test lists the stubs it needs: use_stubs git
+# A value of the shell does not reach a stub: the test sets each one it uses.
 use_stubs() {
+  unset "${!STUB_@}"
   REPO_ROOT="$(cd "${BATS_TEST_DIRNAME}/.." && pwd)"
   STUB_BIN="${BATS_TEST_TMPDIR}/bin"
   STUB_GIT_LOG="${BATS_TEST_TMPDIR}/git.log"

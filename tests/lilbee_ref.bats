@@ -5,6 +5,7 @@ load helpers
 
 setup() {
   use_stubs git
+  unset LILBEE_REPO LILBEE_DEV
   SCRIPT="${REPO_ROOT}/scripts/lilbee_ref.sh"
   REF_FILE="${BATS_TEST_TMPDIR}/LILBEE_REF"
   TAG_SHA="1111111111111111111111111111111111111111"

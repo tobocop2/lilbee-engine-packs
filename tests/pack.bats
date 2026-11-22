@@ -48,7 +48,7 @@ YML
   commit "first"
   git -C "${LILBEE_REPO}" tag pin-9
   COMMIT="$(git -C "${LILBEE_REPO}" rev-parse HEAD)"
-  unset LILBEE_DIR LILBEE_DEV RUNNER_OS PLATFORM BACKEND RUST_FEATURES
+  unset LILBEE_DIR LILBEE_DEV RUNNER_OS PLATFORM BACKEND RUST_FEATURES RUNNER TIMEOUT OUT_DIR
 }
 
 commit() {
@@ -347,6 +347,57 @@ echo "${RUNNER_TEMP}/bin" >> "$GITHUB_PATH"' ]
       [[ "$output" == *"cell ${cell} needs "* ]]
     done <<< "${cells}"
   done
+}
+
+@test "the ik job is the checkouts, the disk step, Python and one pack step" {
+  local job='.jobs.ik' workflow="${REPO_ROOT}/.github/workflows/build-packs.yml"
+  [ "$(yq -r "[${job}.steps[] | .uses // .name] | @json" "${workflow}")" = '["actions/checkout@v7","actions/checkout@v7","Free disk space for the build","actions/setup-python@v7","Build and check the pack","actions/upload-artifact@v7"]' ]
+  [ "$(yq -r "${job}.steps[] | select(.name == \"Build and check the pack\") | .run" "${workflow}")" = 'bash scripts/pack.sh "${CELL}"' ]
+  [[ "$(yq -r "${job}.steps[] | select(.name == \"Free disk space for the build\") | .run" "${workflow}")" == *"sudo rm -rf /usr/share/dotnet /opt/ghc /usr/local/lib/android /opt/hostedtoolcache
+"* ]]
+  [ "$(yq -r "${job}.env.CELL" "${workflow}")" = 'ik-${{ matrix.cell }}' ]
+  # Two missing keys are equal, so each side has its own line.
+  [ "$(yq -r "${job}.env.LILBEE_DIR" "${workflow}")" = lilbee ]
+  [ "$(yq -r "${job}.steps[1].with.path" "${workflow}")" = lilbee ]
+  [ "$(yq -r "${job}.steps[1].with.ref" "${workflow}")" = '${{ needs.plan.outputs.lilbee_ref }}' ]
+  [ "$(yq -r "${job}.steps[-1].with.name" "${workflow}")" = 'ik-pack-${{ matrix.cell }}' ]
+  [ "$(yq -r "${job}.steps[-1].with.path" "${workflow}")" = 'dist/ik-${{ matrix.cell }}/*' ]
+}
+
+@test "a step of the ik job that fails fails the job, and no step has a condition" {
+  local workflow="${REPO_ROOT}/.github/workflows/build-packs.yml"
+  [ "$(yq '.jobs.ik | .. | select(tag == "!!map") | has("continue-on-error")' "${workflow}" | sort -u)" = false ]
+  [ "$(yq -r '.jobs.ik.defaults.run.shell' "${workflow}")" = bash ]
+  [ "$(yq '[.jobs.ik.steps[] | select(has("shell"))] | length' "${workflow}")" -eq 0 ]
+  [ "$(yq '[.jobs.ik.steps[] | select(has("if"))] | length' "${workflow}")" -eq 0 ]
+}
+
+@test "the output folder of each ik cell is the folder that the job uploads" {
+  local cell cells
+  cells="$(yq -r '.engines.ik.cells[].cell' "${REPO_ROOT}/cells.yml")"
+  [ -n "${cells}" ]
+  while read -r cell; do
+    STUB_UNAME_S=Plan9 run bash "${SCRIPT}" "ik-${cell}" "${REPO_ROOT}/cells.yml"
+    [[ "$output" == *"cell ik-${cell} needs "* ]]
+  done <<< "${cells}"
+}
+
+@test "the ik recipe receives its own pins and the values of its cell" {
+  UPSTREAM_REPO=ggml-org/llama.cpp run bash "${SCRIPT}" ik-linux-x86_64-cuda "${REPO_ROOT}/cells.yml"
+  [ "$status" -eq 0 ]
+  OUT_DIR="${PACKS}/dist/ik-linux-x86_64-cuda"
+  # Two failed calls are equal, so each expected value is read first and has its own form.
+  local commit number
+  commit="$(yq -r '.engines.ik.pins.UPSTREAM_COMMIT' "${REPO_ROOT}/cells.yml")"
+  [[ "${commit}" =~ ^[0-9a-f]{40}$ ]]
+  number="$(yq -r '.engines.ik.cells[] | select(.cell == "linux-x86_64-cuda") | .build_number' "${REPO_ROOT}/cells.yml")"
+  [[ "${number}" =~ ^[0-9]+$ ]]
+  [ "$(value UPSTREAM_REPO)" = ikawrakow/ik_llama.cpp ]
+  [ "$(value UPSTREAM_COMMIT)" = "${commit}" ]
+  [ "$(value PLATFORM)" = manylinux_2_34_x86_64 ]
+  [ "$(value BACKEND)" = cuda ]
+  [ "$(value BUILD_NUMBER)" = "${number}" ]
+  [ "$(value LICENSE_TERMS)" = "MIT AND LicenseRef-NVIDIA-CUDA-EULA" ]
 }
 
 @test "install_yq refuses a download with another digest" {
