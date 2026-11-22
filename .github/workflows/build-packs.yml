@@ -26,13 +26,6 @@ on:
 permissions:
   contents: read
 
-env:
-  GO_LICENSES_VERSION: v2.0.1
-  UPSTREAM_TAG: b12032
-  UPSTREAM_REPO: ggml-org/llama.cpp
-  WHEEL_VERSION: 1.12032.1
-  MACOSX_DEPLOYMENT_TARGET: "14.0"
-
 jobs:
   # The llama and mistralrs jobs run when needs.plan.outputs.engine is "all" or their own name.
   # The tei and ik jobs run only when it is their own name: "all" does not start them.
@@ -79,18 +72,16 @@ jobs:
         shell: bash
     env:
       GH_TOKEN: ${{ github.token }}
-      ASSET: ${{ matrix.asset }}
-      EXTRA_ASSET: ${{ matrix.extra_asset }}
-      LICENSE_TERMS: ${{ matrix.license }}
-      BUILD_NUMBER: ${{ matrix.build_number }}
-      BUILD: ${{ matrix.build }}
-      PLATFORM: ${{ matrix.platform }}
-      BACKEND: ${{ matrix.backend }}
+      LILBEE_DIR: lilbee
+      CELL: llama-${{ matrix.cell }}
     steps:
+      - uses: actions/checkout@v7
+
       - uses: actions/checkout@v7
         with:
           repository: tobocop2/lilbee
           ref: ${{ needs.plan.outputs.lilbee_ref }}
+          path: lilbee
 
       - name: Free disk space for the Vulkan and ROCm build
         if: matrix.build == 'source' && matrix.backend != 'cuda'
@@ -101,334 +92,46 @@ jobs:
           sudo rm -rf /usr/share/dotnet /opt/ghc /usr/local/lib/android /opt/hostedtoolcache
           df -h / | tail -1
 
-      - name: Read the engine pins
-        run: grep -E '^ENGINE_[A-Z_]+=' engine-versions.env >> "$GITHUB_ENV"
+      - name: Free disk space for the CUDA build
+        if: matrix.build == 'source' && matrix.backend == 'cuda'
+        run: |
+          set -euo pipefail
+          # The runner disk is small; the build and the toolkit need several GB.
+          sudo rm -rf /usr/share/dotnet /opt/ghc /usr/local/lib/android
+
+      - name: Read the Go version
+        id: go
+        run: |
+          set -euo pipefail
+          sed -n 's/^ENGINE_GO_VERSION=/version=/p' lilbee/engine-versions.env >> "$GITHUB_OUTPUT"
 
       - uses: actions/setup-go@v7
         with:
-          go-version: ${{ env.ENGINE_GO_VERSION }}
+          go-version: ${{ steps.go.outputs.version }}
           cache: false
 
       - uses: actions/setup-python@v7
         with:
           python-version: "3.12"
 
-      - name: Fetch the upstream archives and check their digests
-        if: matrix.build != 'source'
-        run: |
-          set -euo pipefail
-          for name in "${ASSET}" ${EXTRA_ASSET}; do
-            gh release download "${UPSTREAM_TAG}" -R "${UPSTREAM_REPO}" --pattern "${name}" --dir upstream
-            want="$(gh release view "${UPSTREAM_TAG}" -R "${UPSTREAM_REPO}" --json assets \
-              --jq ".assets[] | select(.name==\"${name}\") | .digest")"
-            if command -v sha256sum >/dev/null; then
-              got="sha256:$(sha256sum "upstream/${name}" | cut -d' ' -f1)"
-            else
-              got="sha256:$(shasum -a 256 "upstream/${name}" | cut -d' ' -f1)"
-            fi
-            test "${want}" = "${got}" || { echo "digest mismatch ${name}: ${want} ${got}"; exit 1; }
-          done
-
-      # This runs before the licence step, which reads the source trees that the configure step fetched.
-      - name: Build llama.cpp with CUDA 12.4 in the manylinux_2_34 image
-        if: matrix.build == 'source' && matrix.backend == 'cuda'
-        run: |
-          set -euo pipefail
-          # The runner disk is small; the build and the toolkit need several GB.
-          sudo rm -rf /usr/share/dotnet /opt/ghc /usr/local/lib/android
-          mkdir -p packaging/engine-wheel/lilbee_engine_llama_cpp/bin
-          docker run --rm -v "${PWD}:/work" -w /work \
-            -e UPSTREAM_REPO -e UPSTREAM_TAG \
-            -e BIN_DIR=/work/packaging/engine-wheel/lilbee_engine_llama_cpp/bin \
-            -e SHA_FILE=/work/cuda-libs.sha256 -e DEPS_DIR=/work/deps-build/_deps -e "OWNER=$(id -u):$(id -g)" \
-            quay.io/pypa/manylinux_2_34_x86_64@sha256:e0b7a1bdb4a0b7d519b29b301e2d3c626a33ea78e9bb5bb1590ce2d99d0ae62f \
-            bash /work/tools/wheel-build/llama_cuda_manylinux.sh
-          ls -l packaging/engine-wheel/lilbee_engine_llama_cpp/bin deps-build/_deps
-          cat cuda-libs.sha256
-
-      - name: Build llama-swap and gguf-parser, and collect every licence they and llama.cpp carry
-        run: |
-          set -euo pipefail
-          export GOTOOLCHAIN=local
-          suffix=""
-          case "$(uname -s)" in MINGW* | MSYS* | CYGWIN*) suffix=".exe" ;; esac
-          bin="$PWD/packaging/engine-wheel/lilbee_engine_llama_cpp/bin"
-          work="$(mktemp -d)"
-          lic="$PWD/packaging/engine-wheel"
-          mkdir -p "${bin}" "${lic}"
-          gh api -H "Accept: application/vnd.github.raw" "repos/${UPSTREAM_REPO}/contents/LICENSE?ref=${UPSTREAM_TAG}" > "${lic}/LICENSE-llama.cpp"
-          git clone -q --depth 1 --branch "${ENGINE_LLAMA_SWAP_VERSION}" https://github.com/mostlygeek/llama-swap.git "${work}/llama-swap"
-          (cd "${work}/llama-swap" && go build -trimpath -o "${bin}/llama-swap${suffix}" .)
-          cp "${work}/llama-swap/LICENSE.md" "${lic}/LICENSE-llama-swap"
-          git clone -q --depth 1 --branch "${ENGINE_GGUF_PARSER_REF}" "${ENGINE_GGUF_PARSER_REPO}" "${work}/gguf-parser-go"
-          (cd "${work}/gguf-parser-go/cmd/gguf-parser" && go build -trimpath -ldflags "-X main.Version=${ENGINE_GGUF_PARSER_REF}" -o "${bin}/gguf-parser${suffix}" .)
-          cp "${work}/gguf-parser-go/LICENSE" "${lic}/LICENSE-gguf-parser"
-          third="${lic}/THIRD-PARTY"
-          # go-licenses reports each module of a binary. It cannot read the standard library, so every
-          # standard package is ignored; the library licence is copied from GOROOT below.
-          ignore=()
-          while IFS= read -r pkg; do ignore+=(--ignore "${pkg}"); done < <(go list std | tr -d '\r')
-          printf '{{ range . }}{{ .LicenseName }}\n{{ end }}' > "${work}/names.tmpl"
-          golicenses() { go run "github.com/google/go-licenses/v2@${GO_LICENSES_VERSION}" "$@"; }
-          # collect <name> <dir> [extra ignore args]: fail on a copyleft or unknown licence, save the
-          # texts of the modules that the binary links, and list their SPDX names.
-          collect() {
-            local name="$1" dir="$2"
-            shift 2
-            (cd "${dir}"
-              golicenses check . "${ignore[@]}" "$@" --disallowed_types=forbidden,restricted,reciprocal,unknown
-              golicenses save . "${ignore[@]}" "$@" --save_path "${third}/${name}"
-              golicenses report . "${ignore[@]}" "$@" --template "${work}/names.tmpl" >> "${work}/names.txt")
-          }
-          collect llama-swap "${work}/llama-swap"
-          # The binary lives in a nested module that has no licence file of its own; the licence file at the repository root covers it.
-          collect gguf-parser "${work}/gguf-parser-go/cmd/gguf-parser" --ignore github.com/gpustack/gguf-parser-go/cmd/gguf-parser
-          goroot="$(go env GOROOT | tr -d '\r')"
-          goroot="${goroot//\\//}"
-          cp "${goroot}/LICENSE" "${lic}/LICENSE-Go"
-          git clone -q --depth 1 --branch "${UPSTREAM_TAG}" "https://github.com/${UPSTREAM_REPO}.git" "${work}/llama.cpp"
-          # The wheel build and the retag stamp every entry with the commit time of the llama.cpp tag.
-          bash tools/wheel-build/source_date_epoch.sh "${work}/llama.cpp" >> "$GITHUB_ENV"
-          # A release-asset cell configures the tag with the BoringSSL flag that the four release jobs
-          # share, and no compile; the collector reads the licence files of what that fetched.
-          # A source cell sets LLAMA_OPENSSL=OFF and LLAMA_BUILD_UI=OFF, so it links no fetched TLS code and no web UI.
-          collect_args=(--skip tools/ui)
-          deps=""
-          if [ "${BUILD}" != source ]; then
-            cmake -S "${work}/llama.cpp" -B "${work}/deps-build" -DLLAMA_BUILD_BORINGSSL=ON \
-              -DLLAMA_BUILD_UI=OFF -DLLAMA_USE_PREBUILT_UI=OFF -DLLAMA_BUILD_TESTS=OFF -DLLAMA_BUILD_EXAMPLES=OFF -DGGML_NATIVE=OFF
-            collect_args=()
-            deps="${work}/deps-build/_deps"
-            if [ "${BACKEND}" = cuda ]; then
-              # The CUDA asset compiles in CCCL; a configure with CUDA needs the toolkit, which this runner lacks.
-              python -m pip install -q "pyyaml==6.0.3"
-              read -r cccl_repo cccl_tag < <(python tools/wheel-build/cccl_source.py "${work}/llama.cpp" "${ASSET}" "${UPSTREAM_TAG}" | tr -d '\r')
-              git -c core.longpaths=true clone -q --depth 1 --branch "${cccl_tag}" "${cccl_repo}" "${deps}/cccl-src"
-              echo "CCCL ${cccl_tag} from ${cccl_repo}"
-            fi
-          elif [ "${BACKEND}" = cuda ]; then
-            # The CUDA build step copied the trees that its configure fetched (CCCL) here.
-            deps="${PWD}/deps-build/_deps"
-          fi
-          bash tools/wheel-build/collect_vendored_licences.sh ${collect_args[@]+"${collect_args[@]}"} \
-            "${work}/llama.cpp" "${third}/llama.cpp" "${work}/vendored-terms.txt" "${deps}"
-          # The wheel states every licence it carries: the cell's own terms, the Go module licences,
-          # the Go library licence and the vendored llama.cpp licences. A name that the cell already lists is not repeated.
-          terms="${LICENSE_TERMS}"
-          while IFS= read -r id; do
-            [ -n "${id}" ] || continue
-            printf '%s\n' "${terms// AND /$'\n'}" | grep -qxF "${id}" || terms="${terms} AND ${id}"
-          done < <({ cat "${work}/names.txt" "${work}/vendored-terms.txt"; echo BSD-3-Clause; } | tr -d '\r' | sort -u)
-          echo "License-Expression: ${terms}"
-          echo "LICENSE_EXPRESSION=${terms}" >> "$GITHUB_ENV"
-          for f in "${lic}"/LICENSE-*; do test -s "${f}" || { echo "empty licence file ${f}"; exit 1; }; done
-          find "${third}" -type f | wc -l
-
-      - name: Write the NVIDIA CUDA notice with the EULA text
-        if: matrix.backend == 'cuda'
-        run: |
-          set -euo pipefail
-          python - packaging/engine-wheel/NOTICE-NVIDIA-CUDA <<'PY'
-          import html.parser, sys, urllib.request
-
-          class Text(html.parser.HTMLParser):
-              def __init__(self):
-                  super().__init__()
-                  self.parts, self.skip = [], 0
-
-              def handle_starttag(self, tag, attrs):
-                  if tag in ("script", "style"):
-                      self.skip += 1
-                  elif tag in ("p", "div", "li", "h1", "h2", "h3", "h4", "br", "tr"):
-                      self.parts.append("\n")
-
-              def handle_endtag(self, tag):
-                  if tag in ("script", "style"):
-                      self.skip -= 1
-
-              def handle_data(self, data):
-                  if not self.skip:
-                      self.parts.append(data)
-
-          url = "https://docs.nvidia.com/cuda/archive/12.4.1/eula/index.html"
-          page = urllib.request.urlopen(url, timeout=60).read().decode("utf-8")
-          parser = Text()
-          parser.feed(page)
-          body = "\n".join(line.strip() for line in "".join(parser.parts).splitlines() if line.strip())
-          if "Attachment A" not in body or len(body) < 20000:
-              raise SystemExit("the EULA text from " + url + " looks incomplete")
-          head = (
-              "This wheel carries NVIDIA CUDA 12.4 runtime files: the CUDA Runtime (cudart) and the\n"
-              "CUDA BLAS libraries (cublas, cublasLt). They are named in Attachment A of the NVIDIA\n"
-              "CUDA Toolkit End User License Agreement (https://docs.nvidia.com/cuda/eula/index.html#attachment-a).\n"
-              "The files are not modified. The EULA terms apply to these files. The GPU driver\n"
-              "(libcuda, nvcuda) is not part of this wheel.\n\n"
-              "NVIDIA CUDA Toolkit EULA, version 12.4.1, from " + url + "\n\n")
-          open(sys.argv[1], "w", encoding="utf-8").write(head + body + "\n")
-          PY
-          wc -c packaging/engine-wheel/NOTICE-NVIDIA-CUDA
-
-      - name: Build llama.cpp for CPU, Vulkan or ROCm in the manylinux_2_34 image
-        if: matrix.build == 'source' && matrix.backend != 'cuda'
-        run: |
-          set -euo pipefail
-          mkdir -p packaging/engine-wheel/lilbee_engine_llama_cpp/bin
-          docker run --rm -v "${PWD}:/work" -w /work \
-            -e BACKEND -e UPSTREAM_REPO -e UPSTREAM_TAG \
-            -e BIN_DIR=/work/packaging/engine-wheel/lilbee_engine_llama_cpp/bin \
-            -e LICENSE_DIR=/work/packaging/engine-wheel \
-            -e "OWNER=$(id -u):$(id -g)" \
-            quay.io/pypa/manylinux_2_34_x86_64@sha256:e0b7a1bdb4a0b7d519b29b301e2d3c626a33ea78e9bb5bb1590ce2d99d0ae62f \
-            bash /work/tools/wheel-build/llama_gpu_manylinux.sh
-          ls -l packaging/engine-wheel/lilbee_engine_llama_cpp/bin
-          df -h / | tail -1
-
-      - name: Repack the upstream archives into the wheel tree
-        if: matrix.build != 'source'
-        run: |
-          set -euo pipefail
-          python - packaging/engine-wheel/lilbee_engine_llama_cpp/bin "upstream/${ASSET}" ${EXTRA_ASSET:+"upstream/${EXTRA_ASSET}"} <<'PY'
-          import re, shutil, subprocess, sys, tarfile, tempfile, zipfile
-          from pathlib import Path
-
-          bin_dir, archives = Path(sys.argv[1]), [Path(a) for a in sys.argv[2:]]
-          server = {"llama-server", "llama-server.exe"}
-          library = re.compile(r"lib.+\.so(\.[\d.]+)?|.+\.dll|lib.+(\.[\d.]+)?\.dylib")
-
-          def install_name(entry):
-              """The file name dependents load for a dylib: its install id, else its own name."""
-              if entry.suffix != ".dylib":
-                  return entry.name
-              ident = subprocess.run(["otool", "-D", str(entry)], capture_output=True, text=True, check=True)
-              lines = ident.stdout.strip().splitlines()
-              return Path(lines[-1].strip()).name if len(lines) > 1 else entry.name
-
-          def repack(archive, with_server):
-              """Copy the server and the libraries of one archive; a runtime-only archive has no server."""
-              with tempfile.TemporaryDirectory() as scratch:
-                  if archive.suffix == ".zip":
-                      with zipfile.ZipFile(archive) as z:
-                          z.extractall(scratch)
-                  else:
-                      with tarfile.open(archive) as t:
-                          t.extractall(scratch, filter="data")
-                  wanted = lambda p: p.name in server if with_server else library.fullmatch(p.name)
-                  roots = {p.parent for p in Path(scratch).rglob("*") if p.is_file() and wanted(p)}
-                  if len(roots) != 1:
-                      raise SystemExit(f"{archive.name}: expected one folder to repack, found {len(roots)}")
-                  (root,) = roots
-                  # The archive carries the LLVM OpenMP licence beside libomp.dll.
-                  omp_licence = root / "LICENSE-LLVM-OpenMP"
-                  if with_server and omp_licence.is_file():
-                      shutil.copy2(omp_licence, bin_dir.parents[1] / omp_licence.name)
-                  for entry in sorted(root.iterdir()):
-                      if entry.is_symlink():
-                          continue  # a link only repeats a file that the loop copies once
-                      if entry.is_file() and (entry.name in server or library.fullmatch(entry.name)):
-                          target = bin_dir / install_name(entry)
-                          if target.exists():
-                              raise SystemExit(f"{archive.name}: two files install as {target.name}")
-                          shutil.copy2(entry, target)
-
-          repack(archives[0], True)
-          for extra in archives[1:]:
-              repack(extra, False)
-          if not any((bin_dir / n).exists() for n in server):
-              raise SystemExit(f"{archives[0].name}: no llama-server in the tree")
-          if (bin_dir / "libomp.dll").exists() and not (bin_dir.parents[1] / "LICENSE-LLVM-OpenMP").is_file():
-              raise SystemExit(f"{archives[0].name}: libomp.dll without LICENSE-LLVM-OpenMP")
-          PY
-          ls -l packaging/engine-wheel/lilbee_engine_llama_cpp/bin
-
-      - name: Add the Visual C++ runtime beside the exe
-        if: runner.os == 'Windows'
-        run: bash tools/wheel-build/bundle_windows_runtime.sh packaging/engine-wheel/lilbee_engine_llama_cpp/bin packaging/engine-wheel/NOTICE-MICROSOFT-VC-RUNTIME vs-licence.docx
-
-      - name: Drop vcomp140 when nothing imports it
+      # The Windows runner image has no yq.
+      - name: Install the pinned yq
         if: runner.os == 'Windows'
         run: |
-          set -euo pipefail
-          cd packaging/engine-wheel/lilbee_engine_llama_cpp/bin
-          # This build uses libomp.dll. A binary that names vcomp140 keeps the file.
-          if grep -rilaF vcomp140 --include='*.dll' --include='*.exe' . | grep -vi '^./vcomp140.dll$'; then
-            echo "a binary imports vcomp140.dll"; exit 1
-          fi
-          rm -f vcomp140.dll
+          bash scripts/install_yq.sh "${RUNNER_TEMP}/bin"
+          echo "${RUNNER_TEMP}/bin" >> "$GITHUB_PATH"
 
-      - name: Build the wheel
-        run: |
-          set -euo pipefail
-          cd packaging/engine-wheel
-          python - "${WHEEL_VERSION}" <<'PY'
-          import os, pathlib, re, sys
-          p = pathlib.Path("pyproject.toml")
-          text = re.sub(r'(?m)^version = ".*"$', f'version = "{sys.argv[1]}"', p.read_text(), count=1)
-          # License-Expression in METADATA needs setuptools 77 or later; lilbee refuses a wheel without it.
-          text = text.replace('requires = ["setuptools>=68"]', 'requires = ["setuptools>=77"]', 1)
-          files = '["LICENSE-*", "NOTICE-*", "THIRD-PARTY/**"]'
-          text = text.replace('requires-python', 'license = "%s"\nlicense-files = %s\nrequires-python' % (os.environ["LICENSE_EXPRESSION"], files), 1)
-          p.write_text(text)
-          pin = "llama-cpp-{}+swap-{}+gguf-{}".format(
-              os.environ["UPSTREAM_TAG"], os.environ["ENGINE_LLAMA_SWAP_VERSION"], os.environ["ENGINE_GGUF_PARSER_REF"])
-          pathlib.Path("lilbee_engine_llama_cpp/pins.py").write_text(
-              '"""Engine build identity; written by the build-packs workflow."""\n\nENGINE_PIN = "%s"\n' % pin)
-          PY
-          python -m pip install build wheel
-          grep -E '^(license|license-files|requires)' pyproject.toml
-          cat lilbee_engine_llama_cpp/pins.py
-          python -m build --wheel -C--build-option="--build-number=${BUILD_NUMBER}.${BACKEND}"
-          python -m wheel tags --remove --platform-tag "${PLATFORM}" dist/*.whl
-          ls dist
+      - name: Build the pack
+        run: bash scripts/pack.sh "${CELL}"
 
-      - name: Repair the macOS wheel with delocate
-        if: runner.os == 'macOS'
-        run: |
-          set -euo pipefail
-          python -m pip install "delocate==0.13.0"
-          # Fails when any Mach-O needs a newer macOS than the tag (macosx_14_0) allows.
-          delocate-wheel --require-archs arm64 --require-target-macos-version 14.0 \
-            -w repaired packaging/engine-wheel/dist/*.whl
-          ls repaired
-          for w in repaired/*.whl; do
-            case "${w}" in *-macosx_14_0_arm64.whl) ;; *) echo "wrong tag on ${w}"; exit 1 ;; esac
-            python -m zipfile -l "${w}" > wheel-listing.txt
-            if grep -q '\.dylibs/' wheel-listing.txt; then echo "delocate grafted a library into ${w}"; exit 1; fi
-          done
-
-      - name: Collect the wheel
-        run: |
-          set -euo pipefail
-          mkdir -p out
-          if [ "${RUNNER_OS}" = macOS ]; then
-            cp repaired/*.whl out/
-          else
-            cp packaging/engine-wheel/dist/*.whl out/
-          fi
-          wheels=(out/*.whl)
-          test "${#wheels[@]}" -eq 1
-          wheel="${wheels[0]}"
-          if command -v sha256sum >/dev/null; then
-            (cd out && sha256sum "$(basename "${wheel}")" > "$(basename "${wheel}").sha256")
-          else
-            (cd out && shasum -a 256 "$(basename "${wheel}")" > "$(basename "${wheel}").sha256")
-          fi
-          cat out/*.sha256
-          if [ "${BACKEND}" = rocm ]; then
-            # The lists of gfx targets that the rocBLAS kernels in the pack cover.
-            shopt -s nullglob
-            for kernels in packaging/engine-wheel/lilbee_engine_llama_cpp/bin/rocblas/library/TensileLibrary_lazy_gfx*.dat; do
-              name="${kernels##*/}"
-              name="${name#TensileLibrary_lazy_}"
-              echo "${name%.dat}"
-            done | sort -u > out/lilbee-linux-x86_64-rocm.gfx.txt
-            [ -s out/lilbee-linux-x86_64-rocm.gfx.txt ] || { echo "the pack carries no rocBLAS kernels"; exit 1; }
-            cat out/lilbee-linux-x86_64-rocm.gfx.txt
-          fi
-          ls -l out
-
+      # The check reads out/, license-expression.txt, cuda-libs.sha256 and vs-licence.docx of the lilbee checkout.
       - name: Start llama-server from the installed wheel
+        working-directory: lilbee
+        env:
+          BACKEND: ${{ matrix.backend }}
         run: |
           set -euo pipefail
+          LICENSE_EXPRESSION="$(cat license-expression.txt)"
           python -m venv check-venv
           if [ "${RUNNER_OS}" = Windows ]; then py=check-venv/Scripts/python.exe; else py=check-venv/bin/python; fi
           "${py}" -m pip install -q out/*.whl
@@ -465,7 +168,7 @@ jobs:
           if [ "${BACKEND}" = cpu ] && [ "${RUNNER_OS}" = Linux ]; then
             test "$(find "${bindir}" -name 'libggml-cpu-*.so' | wc -l)" -ge 2
             if ldd "${bindir}/llama-server" | grep 'not found'; then echo "llama-server has an unresolved library"; exit 1; fi
-            bash "${GITHUB_WORKSPACE}/tools/wheel-build/check_glibc_floor.sh" "${bindir}"
+            bash "${GITHUB_WORKSPACE}/lilbee/tools/wheel-build/check_glibc_floor.sh" "${bindir}"
           fi
           if [ "${BACKEND}" = vulkan ]; then
             if [ "${RUNNER_OS}" = Windows ]; then
@@ -475,7 +178,7 @@ jobs:
               test "$(find "${bindir}" -name 'libggml-cpu-*.so' | wc -l)" -ge 2
               if find "${bindir}" -name 'libvulkan*' | grep .; then echo "the Vulkan loader must stay with the host"; exit 1; fi
               if ldd "${bindir}/llama-server" | grep 'not found'; then echo "llama-server has an unresolved library"; exit 1; fi
-              bash "${GITHUB_WORKSPACE}/tools/wheel-build/check_glibc_floor.sh" "${bindir}"
+              bash "${GITHUB_WORKSPACE}/lilbee/tools/wheel-build/check_glibc_floor.sh" "${bindir}"
             fi
           fi
           if [ "${BACKEND}" = rocm ]; then
@@ -486,10 +189,10 @@ jobs:
               grep -q "dist-info/licenses/LICENSE-ROCm-${lic}$" wheel-listing.txt || { echo "wheel lacks the ${lic} licence"; exit 1; }
             done
             if ldd "${bindir}/llama-server" | grep 'not found'; then echo "llama-server has an unresolved library"; exit 1; fi
-            bash "${GITHUB_WORKSPACE}/tools/wheel-build/check_glibc_floor.sh" "${bindir}"
+            bash "${GITHUB_WORKSPACE}/lilbee/tools/wheel-build/check_glibc_floor.sh" "${bindir}"
             # A clean container names exactly the six host libraries; with them installed, everything resolves.
-            bash "${GITHUB_WORKSPACE}/tools/qa/assert_rocm_host_libs.sh" "${bindir}"
-            bash "${GITHUB_WORKSPACE}/tools/qa/assert_rocm_bundle_loads.sh" "${bindir}"
+            bash "${GITHUB_WORKSPACE}/lilbee/tools/qa/assert_rocm_host_libs.sh" "${bindir}"
+            bash "${GITHUB_WORKSPACE}/lilbee/tools/qa/assert_rocm_bundle_loads.sh" "${bindir}"
           fi
           if [ "${BACKEND}" = cuda ]; then
             grep -q "dist-info/licenses/NOTICE-NVIDIA-CUDA$" wheel-listing.txt || { echo "wheel lacks the NVIDIA notice"; exit 1; }
@@ -526,7 +229,7 @@ jobs:
       - uses: actions/upload-artifact@v7
         with:
           name: llama-pack-${{ matrix.cell }}
-          path: out/*
+          path: dist/llama-${{ matrix.cell }}/*
           if-no-files-found: error
           retention-days: 7
 

@@ -1,8 +1,7 @@
 # Every build cell of the engine packs, the pins of each engine, and the build image.
 # scripts/plan.sh turns this file into the matrix of each job of build-packs.yml.
 # A cell is one row of that matrix: its keys and value types are the matrix keys of the job.
-# The llama pins and the image equal the values in build-packs.yml, where llama still builds.
-# tests/pins.bats fails when they differ. scripts/pack.sh passes the pins of the other engines to the recipe.
+# scripts/pack.sh passes the pins of the engine and the image to the recipe.
 manylinux_image: quay.io/pypa/manylinux_2_34_x86_64@sha256:e0b7a1bdb4a0b7d519b29b301e2d3c626a33ea78e9bb5bb1590ce2d99d0ae62f
 engines:
   llama:
