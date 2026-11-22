@@ -273,6 +273,25 @@ value() {  # key
   [ "${ids}" -gt 0 ]
 }
 
+@test "the Metal cell of mistral.rs has the tag of macOS 15.0" {
+  [ "$(yq -r '.engines.mistralrs.cells[] | select(.backend == "metal") | .cell + " " + .platform' "${REPO_ROOT}/cells.yml")" = "mistralrs-macos-arm64-metal macosx_15_0_arm64" ]
+}
+
+# The wheel check reads the target of the Metal libraries only. It cannot see a class that an older macOS lacks.
+@test "the tag of the Metal cell of mistral.rs is macOS 15 or later, because candle makes a residency set" {
+  major="$(yq -r '.engines.mistralrs.cells[] | select(.backend == "metal") | .platform' "${REPO_ROOT}/cells.yml" | sed -n 's/^macosx_\([0-9][0-9]*\)_[0-9][0-9]*_arm64$/\1/p')"
+  [ "${major}" -ge 15 ]
+}
+
+@test "the Metal cell of mistral.rs passes its platform to the recipe on the Mac" {
+  cp "${REPO_ROOT}/cells.yml" "${PACKS}/cells.yml"
+  STUB_UNAME_S=Darwin STUB_UNAME_M=arm64 run bash "${SCRIPT}" mistralrs-macos-arm64-metal
+  [ "$status" -eq 0 ]
+  OUT_DIR="${PACKS}/dist/mistralrs-macos-arm64-metal"
+  [ "$(value PLATFORM)" = macosx_15_0_arm64 ]
+  [ "$(value BACKEND)" = metal ]
+}
+
 @test "the mistralrs job is the checkouts, the tools and one pack step" {
   local job='.jobs.mistralrs' workflow="${REPO_ROOT}/.github/workflows/build-packs.yml"
   [ "$(yq -r "[${job}.steps[] | .uses // .name] | @json" "${workflow}")" = '["actions/checkout@v7","actions/checkout@v7","actions/setup-python@v7","Install the pinned yq","Build and check the pack","actions/upload-artifact@v7"]' ]

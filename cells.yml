@@ -106,7 +106,9 @@ engines:
         backend: metal
         runner: macos-15
         asset: mistralrs-metal-aarch64-apple-darwin.tar.gz
-        platform: macosx_11_0_arm64
+        # candle makes a residency set, a class of macOS 15, for every Metal device. The Metal libraries in the tool
+        # also target macOS 15. The load command of the tool names macOS 11.
+        platform: macosx_15_0_arm64
         rust_target: aarch64-apple-darwin
         about_target: aarch64-apple-darwin
         rust_features: metal
