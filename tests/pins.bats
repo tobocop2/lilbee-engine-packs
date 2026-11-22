@@ -1,7 +1,6 @@
 #!/usr/bin/env bats
-# cells.yml holds the pins of each engine and the build image. build-packs.yml holds the same
-# values in its env for each engine that does not build through scripts/pack.sh. A pin that differs
-# would build one version and test another, so each pin is compared here.
+# cells.yml holds the pins of each engine and the build image, and no other file does. A second copy that differs
+# would build one version and test another.
 
 load helpers
 
@@ -15,11 +14,16 @@ pin() {  # engine key
   yq -r ".engines.$1.pins.$2" "${CELLS}"
 }
 
-@test "the llama pins equal the env of the workflow" {
+@test "the llama pins are in cells.yml only" {
   local key
   for key in UPSTREAM_REPO UPSTREAM_TAG WHEEL_VERSION GO_LICENSES_VERSION MACOSX_DEPLOYMENT_TARGET; do
-    [ "$(pin llama "${key}")" = "$(yq -r ".env.${key}" "${WORKFLOW}")" ]
+    [[ "$(pin llama "${key}")" =~ [0-9A-Za-z] ]]
+    [ "$(pin llama "${key}")" != null ]
+    run grep -F "${key}" "${WORKFLOW}"
+    [ "$status" -eq 1 ]
   done
+  [ "$(yq -r 'has("env")' "${WORKFLOW}")" = false ]
+  [ "$(yq -r '.jobs.cell.env | keys | @json' "${WORKFLOW}")" = '["GH_TOKEN","LILBEE_DIR","CELL"]' ]
 }
 
 @test "the mistralrs pins are in cells.yml only" {
@@ -30,7 +34,7 @@ pin() {  # engine key
     run grep -F "${key}" "${WORKFLOW}"
     [ "$status" -eq 1 ]
   done
-  [ "$(pin mistralrs MACOSX_DEPLOYMENT_TARGET)" = "$(yq -r '.env.MACOSX_DEPLOYMENT_TARGET' "${WORKFLOW}")" ]
+  [ "$(pin mistralrs MACOSX_DEPLOYMENT_TARGET)" = "$(pin llama MACOSX_DEPLOYMENT_TARGET)" ]
 }
 
 @test "the tei pins are in cells.yml only" {
@@ -43,7 +47,7 @@ pin() {  # engine key
   done
   [ "v$(pin tei WHEEL_VERSION)" = "$(pin tei TEI_TAG)" ]
   [ "$(yq -r '.jobs.tei.env | keys | @json' "${WORKFLOW}")" = '["LILBEE_DIR","CELL"]' ]
-  [ "$(pin tei MACOSX_DEPLOYMENT_TARGET)" = "$(yq -r '.env.MACOSX_DEPLOYMENT_TARGET' "${WORKFLOW}")" ]
+  [ "$(pin tei MACOSX_DEPLOYMENT_TARGET)" = "$(pin llama MACOSX_DEPLOYMENT_TARGET)" ]
 }
 
 @test "the ik pins are in cells.yml only" {
@@ -60,13 +64,9 @@ pin() {  # engine key
   [ "$(yq -r '.jobs.ik.env | keys | @json' "${WORKFLOW}")" = '["LILBEE_DIR","CELL"]' ]
 }
 
-@test "every manylinux image in the workflow is the image of cells.yml" {
-  local image all same
-  image="$(yq -r '.manylinux_image' "${CELLS}")"
-  all="$(grep -c 'quay.io/pypa/manylinux' "${WORKFLOW}")"
-  same="$(grep -cF "${image}" "${WORKFLOW}")"
-  [ "${all}" -gt 0 ]
-  [ "${all}" -eq "${same}" ]
+@test "the workflow names no image, so every cell builds in the image of cells.yml" {
+  run grep -F 'quay.io/' "${WORKFLOW}"
+  [ "$status" -eq 1 ]
 }
 
 @test "the image names a digest" {

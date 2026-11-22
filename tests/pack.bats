@@ -292,6 +292,65 @@ value() {  # key
   [ "$(value BACKEND)" = metal ]
 }
 
+@test "the llama job is the checkouts, the disk steps, the tools, one pack step and the check" {
+  local job='.jobs.cell' workflow="${REPO_ROOT}/.github/workflows/build-packs.yml"
+  [ "$(yq -r "[${job}.steps[] | .uses // .name] | @json" "${workflow}")" = '["actions/checkout@v7","actions/checkout@v7","Free disk space for the Vulkan and ROCm build","Free disk space for the CUDA build","Read the Go version","actions/setup-go@v7","actions/setup-python@v7","Install the pinned yq","Build the pack","Start llama-server from the installed wheel","actions/upload-artifact@v7"]' ]
+  [ "$(yq -r "${job}.steps[] | select(.name == \"Build the pack\") | .run" "${workflow}")" = 'bash scripts/pack.sh "${CELL}"' ]
+  [ "$(yq -r "${job}.env.CELL" "${workflow}")" = 'llama-${{ matrix.cell }}' ]
+  [ "$(yq -r "${job}.env.LILBEE_DIR" "${workflow}")" = "$(yq -r "${job}.steps[1].with.path" "${workflow}")" ]
+  [ "$(yq -r "${job}.steps[1].with.ref" "${workflow}")" = '${{ needs.plan.outputs.lilbee_ref }}' ]
+  [ "$(yq -r "${job}.steps[-2].working-directory" "${workflow}")" = lilbee ]
+  [ "$(yq -r "${job}.steps[-1].with.name" "${workflow}")" = 'llama-pack-${{ matrix.cell }}' ]
+  [ "$(yq -r "${job}.steps[-1].with.path" "${workflow}")" = 'dist/llama-${{ matrix.cell }}/*' ]
+}
+
+@test "the llama job installs the Go version of the lilbee tag" {
+  local job='.jobs.cell' workflow="${REPO_ROOT}/.github/workflows/build-packs.yml" script
+  script="$(yq -r "${job}.steps[] | select(.id == \"go\") | .run" "${workflow}")"
+  [ -n "${script}" ]
+  cd "${BATS_TEST_TMPDIR}"
+  mkdir lilbee
+  printf '%s\n' '# pins' 'ENGINE_GO_VERSION=1.2.3' 'ENGINE_OTHER=4' > lilbee/engine-versions.env
+  GITHUB_OUTPUT=out.txt run bash -c "${script}"
+  [ "$status" -eq 0 ]
+  [ "$(cat out.txt)" = version=1.2.3 ]
+  [ "$(yq -r "${job}.steps[] | select(.uses == \"actions/setup-go@v7\") | .with.go-version" "${workflow}")" = '${{ steps.go.outputs.version }}' ]
+}
+
+@test "a step of the llama job that fails fails the job, and only the disk and yq steps have a condition" {
+  local workflow="${REPO_ROOT}/.github/workflows/build-packs.yml" flags
+  flags="$(yq '.jobs.cell | .. | select(tag == "!!map") | has("continue-on-error")' "${workflow}" | sort -u)"
+  [ "${flags}" = false ]
+  [ "$(yq -r '.jobs.cell.defaults.run.shell' "${workflow}")" = bash ]
+  [ "$(yq '[.jobs.cell.steps[] | select(has("shell"))] | length' "${workflow}")" -eq 0 ]
+  [ "$(yq -r '[.jobs.cell.steps[] | select(has("if")) | .name + ": " + .if] | join("; ")' "${workflow}")" = "Free disk space for the Vulkan and ROCm build: matrix.build == 'source' && matrix.backend != 'cuda'; Free disk space for the CUDA build: matrix.build == 'source' && matrix.backend == 'cuda'; Install the pinned yq: runner.os == 'Windows'" ]
+}
+
+@test "the llama recipe receives its own pins and the values of its cell" {
+  cp "${LILBEE_REPO}/tools/wheel-build/pack_ik.sh" "${LILBEE_REPO}/tools/wheel-build/pack_llama.sh"
+  git -C "${LILBEE_REPO}" add tools/wheel-build/pack_llama.sh
+  commit "llama recipe"
+  git -C "${LILBEE_REPO}" tag -f pin-9
+  UPSTREAM_REPO=ikawrakow/ik_llama.cpp EXTRA_ASSET=x run bash "${SCRIPT}" llama-linux-x86_64-cuda "${REPO_ROOT}/cells.yml"
+  [ "$status" -eq 0 ]
+  OUT_DIR="${PACKS}/dist/llama-linux-x86_64-cuda"
+  local key expected
+  for key in UPSTREAM_REPO UPSTREAM_TAG WHEEL_VERSION GO_LICENSES_VERSION MACOSX_DEPLOYMENT_TARGET; do
+    expected="$(yq -r ".engines.llama.pins.${key}" "${REPO_ROOT}/cells.yml")"
+    [[ "${expected}" =~ [0-9A-Za-z] ]]
+    [ "$(value "${key}")" = "${expected}" ]
+  done
+  expected="$(yq -r '.engines.llama.cells[] | select(.cell == "linux-x86_64-cuda") | .build_number' "${REPO_ROOT}/cells.yml")"
+  [[ "${expected}" =~ ^[0-9]+$ ]]
+  [ "$(value BUILD_NUMBER)" = "${expected}" ]
+  [ "$(value BUILD)" = source ]
+  [ "$(value BACKEND)" = cuda ]
+  [ "$(value PLATFORM)" = manylinux_2_34_x86_64 ]
+  [ "$(value LICENSE_TERMS)" = "MIT AND LicenseRef-NVIDIA-CUDA-EULA" ]
+  grep -qx 'ASSET=' "${OUT_DIR}/env.txt"
+  grep -qx 'EXTRA_ASSET=' "${OUT_DIR}/env.txt"
+}
+
 @test "the mistralrs job is the checkouts, the tools and one pack step" {
   local job='.jobs.mistralrs' workflow="${REPO_ROOT}/.github/workflows/build-packs.yml"
   [ "$(yq -r "[${job}.steps[] | .uses // .name] | @json" "${workflow}")" = '["actions/checkout@v7","actions/checkout@v7","actions/setup-python@v7","Install the pinned yq","Build and check the pack","actions/upload-artifact@v7"]' ]
