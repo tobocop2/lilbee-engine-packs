@@ -591,20 +591,16 @@ jobs:
       run:
         shell: bash
     env:
-      TEI_REPO: https://github.com/huggingface/text-embeddings-inference.git
-      TEI_TAG: v1.9.4
-      WHEEL_VERSION: 1.9.4
-      # The toolchain of rust-toolchain.toml at the tag; the build stops when the two differ.
-      RUSTC_VERSION: 1.92.0
-      CUDA_VERSION: 12.9.1
-      CUDA_PACKAGE_SUFFIX: 12-9
-      BACKEND: ${{ matrix.backend }}
-      CUDA_CC: ${{ matrix.cc }}
+      LILBEE_DIR: lilbee
+      CELL: ${{ matrix.cell }}
     steps:
+      - uses: actions/checkout@v7
+
       - uses: actions/checkout@v7
         with:
           repository: tobocop2/lilbee
           ref: ${{ needs.plan.outputs.lilbee_ref }}
+          path: lilbee
 
       - uses: actions/setup-python@v7
         with:
@@ -618,79 +614,7 @@ jobs:
           sudo rm -rf /usr/share/dotnet /opt/ghc /usr/local/lib/android /opt/hostedtoolcache/CodeQL
           df -h / | tail -1
 
-      - name: Build the router wheel in the manylinux_2_34 image
-        if: matrix.os == 'linux'
-        run: |
-          set -euo pipefail
-          mkdir -p out
-          docker run --rm -v "${PWD}:/work" -w /work \
-            -e TEI_REPO -e TEI_TAG -e RUSTC_VERSION -e WHEEL_VERSION -e BACKEND -e CUDA_CC -e CUDA_PACKAGE_SUFFIX -e CUDA_VERSION \
-            -e WORK=/work -e OUT=/work/out -e "OWNER=$(id -u):$(id -g)" \
-            quay.io/pypa/manylinux_2_34_x86_64@sha256:e0b7a1bdb4a0b7d519b29b301e2d3c626a33ea78e9bb5bb1590ce2d99d0ae62f \
-            bash /work/tools/wheel-build/tei_manylinux.sh
-          ls -l out out/repaired
-          df -h / | tail -1
-
-      - name: Build the router for Metal
-        if: matrix.os == 'macos'
-        run: |
-          set -euo pipefail
-          rustup toolchain install "${RUSTC_VERSION}" --profile minimal
-          export RUSTUP_TOOLCHAIN="${RUSTC_VERSION}"
-          mkdir -p "${RUNNER_TEMP}/bin" out
-          bash tools/wheel-build/install_cargo_about.sh "${RUNNER_TEMP}/bin"
-          export PATH="${RUNNER_TEMP}/bin:${PATH}"
-          git clone -q --depth 1 --branch "${TEI_TAG}" "${TEI_REPO}" "${RUNNER_TEMP}/tei"
-          grep -q "channel = \"${RUSTC_VERSION}\"" "${RUNNER_TEMP}/tei/rust-toolchain.toml"
-          # The upstream .cargo/config.toml builds for the runner CPU (target-cpu=native); RUSTFLAGS replaces it.
-          export RUSTFLAGS="-C target-cpu=apple-m1"
-          (cd "${RUNNER_TEMP}/tei" && cargo build --release --locked --bin text-embeddings-router --no-default-features --features candle,metal,http)
-          python -m pip install -q build wheel "delocate==0.13.0"
-          # The wheel build, the retag and delocate stamp every entry with the commit time of the source.
-          export "$(bash tools/wheel-build/source_date_epoch.sh "${RUNNER_TEMP}/tei")"
-          bash tools/wheel-build/tei_wheel.sh "${RUNNER_TEMP}/tei" "${RUNNER_TEMP}/tei/target/release/text-embeddings-router" \
-            candle,metal,http aarch64-apple-darwin "${BACKEND}" "${PLATFORM}" out
-          # Fails when any Mach-O needs a newer macOS than the tag (macosx_14_0) allows.
-          delocate-wheel --require-archs arm64 --require-target-macos-version 14.0 -w out/repaired out/dist/*.whl
-          python -m zipfile -l out/repaired/*.whl > wheel-listing.txt
-          if grep -q '\.dylibs/' wheel-listing.txt; then echo "delocate grafted a library into the wheel"; exit 1; fi
-          ls -l out out/repaired
-        env:
-          PLATFORM: ${{ matrix.platform }}
-
-      - name: Collect the wheel
-        run: |
-          set -euo pipefail
-          mkdir -p wheel
-          repaired=(out/repaired/*.whl)
-          test "${#repaired[@]}" -eq 1
-          case "${repaired[0]}" in *-"${{ matrix.platform }}.whl") ;; *) echo "wrong tag on ${repaired[0]}"; exit 1 ;; esac
-          cp "${repaired[0]}" wheel/
-          cp out/license-expression.txt wheel/
-          name="$(basename "${repaired[0]}")"
-          if command -v sha256sum >/dev/null; then
-            (cd wheel && sha256sum "${name}" > "${name}.sha256")
-          else
-            (cd wheel && shasum -a 256 "${name}" > "${name}.sha256")
-          fi
-          cat wheel/*.sha256
-          ls -l wheel
-
-      - name: Check the wheel and start the router from the installed wheel
-        run: |
-          set -euo pipefail
-          wheels=(wheel/*.whl)
-          test "${#wheels[@]}" -eq 1
-          python tools/wheel-build/check_tei_wheel.py "${wheels[0]}" "${BACKEND}" wheel/license-expression.txt
-          python -m venv check-venv
-          check-venv/bin/python -m pip install -q "${wheels[0]}"
-          router="$(check-venv/bin/python -c "import lilbee_engine_tei as m, pathlib; print(pathlib.Path(m.__file__).parent / 'bin' / 'text-embeddings-router')")"
-          echo "router: ${router}"
-          stubs=""
-          if [ -d out/stubs ]; then stubs="${PWD}/out/stubs"; fi
-          cd /
-          STUB_DIR="${stubs}" bash "${GITHUB_WORKSPACE}/tools/wheel-build/smoke_tei.sh" "${router}" "${BACKEND}"
-
+      # The pack starts the router of a Linux cell on an emulated CPU.
       - name: Install the CPU emulator
         if: matrix.os == 'linux'
         run: |
@@ -698,25 +622,13 @@ jobs:
           sudo apt-get update -q
           sudo apt-get install -y qemu-user-static
 
-      # The runner CPU has AVX-512, so the run above cannot see a router built for it. Nehalem has SSE4.2
-      # and no AVX, the same floor as the x86-64-v2 build; qemu stops the router with SIGILL on any newer
-      # instruction.
-      - name: Start the router on an emulated CPU without AVX
-        if: matrix.os == 'linux'
-        run: |
-          set -euo pipefail
-          router="$(check-venv/bin/python -c "import lilbee_engine_tei as m, pathlib; print(pathlib.Path(m.__file__).parent / 'bin' / 'text-embeddings-router')")"
-          stubs=""
-          if [ -d out/stubs ]; then stubs="${PWD}/out/stubs"; fi
-          cd /
-          STUB_DIR="${stubs}" bash "${GITHUB_WORKSPACE}/tools/wheel-build/smoke_tei.sh" "${router}" "${BACKEND}"
-        env:
-          EMULATE_CPU: Nehalem
+      - name: Build and check the pack
+        run: bash scripts/pack.sh "${CELL}"
 
       - uses: actions/upload-artifact@v7
         with:
           name: tei-pack-${{ matrix.cell }}
-          path: wheel/*
+          path: dist/${{ matrix.cell }}/*
           if-no-files-found: error
           retention-days: 7
 

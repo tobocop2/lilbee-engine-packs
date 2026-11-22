@@ -298,12 +298,32 @@ value() {  # key
 echo "${RUNNER_TEMP}/bin" >> "$GITHUB_PATH"' ]
 }
 
-@test "the output folder of each mistralrs cell is the folder that the job uploads" {
+@test "the tei job is the checkouts, Python, the steps of a runner and one pack step" {
+  local job='.jobs.tei' workflow="${REPO_ROOT}/.github/workflows/build-packs.yml"
+  [ "$(yq -r "[${job}.steps[] | .uses // .name] | @json" "${workflow}")" = '["actions/checkout@v7","actions/checkout@v7","actions/setup-python@v7","Free disk space for the CUDA build","Install the CPU emulator","Build and check the pack","actions/upload-artifact@v7"]' ]
+  [ "$(yq -r "${job}.steps[] | select(.name == \"Build and check the pack\") | .run" "${workflow}")" = 'bash scripts/pack.sh "${CELL}"' ]
+  [ "$(yq -r "[${job}.steps[] | select(.if) | .if] | @json" "${workflow}")" = "[\"matrix.cc != ''\",\"matrix.os == 'linux'\"]" ]
+  [[ "$(yq -r "${job}.steps[] | select(.name == \"Install the CPU emulator\") | .run" "${workflow}")" == *"apt-get install -y qemu-user-static"* ]]
+  [ "$(yq -r "${job}.env.CELL" "${workflow}")" = '${{ matrix.cell }}' ]
+  [ "$(yq -r "${job}.env.LILBEE_DIR" "${workflow}")" = "$(yq -r "${job}.steps[1].with.path" "${workflow}")" ]
+  [ "$(yq -r "${job}.steps[1].with.ref" "${workflow}")" = '${{ needs.plan.outputs.lilbee_ref }}' ]
+  [ "$(yq -r "${job}.steps[-1].with.name" "${workflow}")" = 'tei-pack-${{ matrix.cell }}' ]
+  [ "$(yq -r "${job}.steps[-1].with.path" "${workflow}")" = 'dist/${{ matrix.cell }}/*' ]
+}
+
+@test "a step of the tei job that fails fails the job" {
+  local workflow="${REPO_ROOT}/.github/workflows/build-packs.yml"
+  [ "$(yq '.jobs.tei | .. | select(tag == "!!map") | has("continue-on-error")' "${workflow}" | sort -u)" = false ]
+  [ "$(yq -r '.jobs.tei.defaults.run.shell' "${workflow}")" = bash ]
+  [ "$(yq '[.jobs.tei.steps[] | select(has("shell"))] | length' "${workflow}")" -eq 0 ]
+}
+
+@test "the output folder of each mistralrs and tei cell is the folder that the job uploads" {
   local cell
   while read -r cell; do
     STUB_UNAME_S=Plan9 run bash "${SCRIPT}" "${cell}" "${REPO_ROOT}/cells.yml"
     [[ "$output" == *"cell ${cell} needs "* ]]
-  done < <(yq -r '.engines.mistralrs.cells[].cell' "${REPO_ROOT}/cells.yml")
+  done < <(yq -r '.engines[] | select(.pins.MISTRALRS_TAG or .pins.TEI_TAG) | .cells[].cell' "${REPO_ROOT}/cells.yml")
 }
 
 @test "install_yq refuses a download with another digest" {

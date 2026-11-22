@@ -33,11 +33,17 @@ pin() {  # engine key
   [ "$(pin mistralrs MACOSX_DEPLOYMENT_TARGET)" = "$(yq -r '.env.MACOSX_DEPLOYMENT_TARGET' "${WORKFLOW}")" ]
 }
 
-@test "the tei pins equal the env of the tei job" {
+@test "the tei pins are in cells.yml only" {
   local key
-  for key in TEI_REPO TEI_TAG WHEEL_VERSION RUSTC_VERSION CUDA_VERSION CUDA_PACKAGE_SUFFIX; do
-    [ "$(pin tei "${key}")" = "$(yq -r ".jobs.tei.env.${key}" "${WORKFLOW}")" ]
+  for key in TEI_REPO TEI_TAG RUSTC_VERSION CUDA_VERSION CUDA_PACKAGE_SUFFIX; do
+    [[ "$(pin tei "${key}")" =~ [0-9A-Za-z] ]]
+    [ "$(pin tei "${key}")" != null ]
+    run grep -F "${key}" "${WORKFLOW}"
+    [ "$status" -eq 1 ]
   done
+  [ "v$(pin tei WHEEL_VERSION)" = "$(pin tei TEI_TAG)" ]
+  [ "$(yq -r '.jobs.tei.env | keys | @json' "${WORKFLOW}")" = '["LILBEE_DIR","CELL"]' ]
+  [ "$(pin tei MACOSX_DEPLOYMENT_TARGET)" = "$(yq -r '.env.MACOSX_DEPLOYMENT_TARGET' "${WORKFLOW}")" ]
 }
 
 @test "the ik pins equal the env of the ik job" {
