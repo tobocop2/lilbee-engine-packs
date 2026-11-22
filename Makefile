@@ -14,7 +14,25 @@ LILBEE_TESTS := tests/test_ik_llama_adapter.py tests/test_llama_pack_backend.py 
 ENGINE ?= all
 CELL ?=
 
-.PHONY: plan tools lint test test-lilbee check
+REPO ?= tobocop2/lilbee-engine-packs
+DIR ?= dist
+SUFFIX ?=
+LILBEE_TAG ?=
+LILBEE_COMMIT ?=
+
+.PHONY: plan publish-dry tools lint test test-lilbee check
+
+# Print the tag, the asset names and the notes of a release, and create nothing. gh reads the releases of REPO,
+# so it needs a login. DIR holds the wheels. By default the lilbee tag and commit come from LILBEE_REF.
+#   make publish-dry DIR=dist SUFFIX=x
+publish-dry:
+	@tag="$(LILBEE_TAG)"; commit="$(LILBEE_COMMIT)"; \
+	if [ -z "$$tag" ] || [ -z "$$commit" ]; then \
+	  out="$$(bash scripts/lilbee_ref.sh LILBEE_REF)"; \
+	  tag="$${tag:-$$(sed -n 's/^tag=//p' <<< "$$out")}"; \
+	  commit="$${commit:-$$(sed -n 's/^commit=//p' <<< "$$out")}"; \
+	fi; \
+	GITHUB_REPOSITORY="$(REPO)" bash scripts/publish.sh --dry-run "$(DIR)" "$(SUFFIX)" "$$tag" "$$commit"
 
 # Print the matrix JSON that build-packs.yml uses: make plan ENGINE=tei CELL=tei-linux-x86_64-cpu
 plan:

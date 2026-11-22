@@ -7,8 +7,10 @@ use_stubs() {
   REPO_ROOT="$(cd "${BATS_TEST_DIRNAME}/.." && pwd)"
   STUB_BIN="${BATS_TEST_TMPDIR}/bin"
   STUB_GIT_LOG="${BATS_TEST_TMPDIR}/git.log"
-  export STUB_GIT_LOG
+  STUB_GH_LOG="${BATS_TEST_TMPDIR}/gh.log"
+  export STUB_GIT_LOG STUB_GH_LOG
   : > "${STUB_GIT_LOG}"
+  : > "${STUB_GH_LOG}"
   mkdir -p "${STUB_BIN}"
   local tool
   for tool in "$@"; do

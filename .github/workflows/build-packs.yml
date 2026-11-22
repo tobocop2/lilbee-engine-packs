@@ -1098,6 +1098,9 @@ jobs:
       GH_TOKEN: ${{ github.token }}
       SUFFIX: ${{ inputs.tag_suffix }}
     steps:
+      - uses: actions/checkout@v7
+        with:
+          persist-credentials: false
       - uses: actions/download-artifact@v8
         with:
           path: packs
@@ -1105,29 +1108,7 @@ jobs:
           merge-multiple: true
 
       - name: Create the release and upload the wheels
-        run: |
-          set -euo pipefail
-          tag="engine-packs-$(date -u +%Y%m%d)${SUFFIX:+-${SUFFIX}}"
-          if gh release view "${tag}" --repo "${GITHUB_REPOSITORY}" >/dev/null 2>&1; then
-            echo "::error::The release ${tag} exists. Give the batch a new tag_suffix."
-            exit 1
-          fi
-          wheels=(packs/lilbee_engine_*.whl)
-          [ -e "${wheels[0]}" ] || { echo "::error::No engine wheel was built."; exit 1; }
-          # One file name holds one wheel: the record of a later release replaces the digest of an earlier one.
-          assets="$(gh api "repos/${GITHUB_REPOSITORY}/releases" --paginate --jq '.[].assets[].name')"
-          clash=0
-          for wheel in "${wheels[@]}"; do
-            name="$(basename "${wheel}")"
-            if grep -qxF "${name}" <<< "${assets}"; then
-              echo "::error::The file ${name} is already an asset of a release. Raise its build number."
-              clash=1
-            fi
-          done
-          [ "${clash}" -eq 0 ] || exit 1
-          gh release create "${tag}" "${wheels[@]}" --repo "${GITHUB_REPOSITORY}" --latest=false \
-            --title "${tag}" --notes "Engine packs built from lilbee tag ${LILBEE_TAG} (commit ${LILBEE_COMMIT})."
-          echo "Published ${tag}" >> "$GITHUB_STEP_SUMMARY"
+        run: bash scripts/publish.sh packs "${SUFFIX}" "${LILBEE_TAG}" "${LILBEE_COMMIT}"
         env:
           LILBEE_TAG: ${{ needs.plan.outputs.lilbee_tag }}
           LILBEE_COMMIT: ${{ needs.plan.outputs.lilbee_commit }}

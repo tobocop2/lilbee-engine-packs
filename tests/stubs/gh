@@ -1,0 +1,48 @@
+#!/usr/bin/env bash
+# Stub gh for the bats tests. It answers `gh release view`, `gh api` (a read) and `gh release create`.
+#   STUB_GH_LOG          a file that receives one line per call
+#   STUB_GH_PAGES        a folder of <n>.json files, one per page of the release list
+#   STUB_GH_TAG_EXISTS   1 makes `gh release view` succeed (the tag exists); otherwise it fails
+#   STUB_GH_API_FAIL     "now" fails the release list at once; "after-first-page" fails it after page 1
+#   STUB_GH_ALLOW_WRITE  1 lets a write call succeed. Without it, every write exits 99 with a message.
+# A write is any `gh release` verb other than view, and any `gh api` call that sets a method, a field or
+# an input, in the forms `-X POST`, `-XPOST`, `--method POST` and `--method=POST`.
+# The stub applies the --jq filter of `gh api` to each page with jq, the way gh does.
+printf '%s\n' "$*" >> "${STUB_GH_LOG:?}"
+
+write_refused() {
+  if [ "${STUB_GH_ALLOW_WRITE:-0}" != "1" ]; then
+    echo "stub gh: a write call in a test that does not allow writes: $*" >&2
+    exit 99
+  fi
+}
+
+case "${1:-}" in
+  api)
+    shift
+    paginate=0
+    filter=
+    while [ "$#" -gt 0 ]; do
+      case "$1" in
+        --paginate) paginate=1 ;;
+        --jq) filter="$2"; shift ;;
+        -X* | --method | --method=* | -f* | -F* | --field | --field=* | --raw-field | --raw-field=* | --input | --input=*)
+          write_refused "api $*" ;;
+      esac
+      shift
+    done
+    [ "${STUB_GH_API_FAIL:-}" = now ] && { echo "gh: HTTP 502" >&2; exit 1; }
+    for page in "${STUB_GH_PAGES:?}"/*.json; do
+      if [ -n "${filter}" ]; then jq -r "${filter}" "${page}"; else cat "${page}"; fi
+      [ "${STUB_GH_API_FAIL:-}" = after-first-page ] && { echo "gh: HTTP 502" >&2; exit 1; }
+      [ "${paginate}" = 1 ] || break
+    done ;;
+  release)
+    case "${2:-}" in
+      view) [ "${STUB_GH_TAG_EXISTS:-0}" = "1" ] || exit 1 ;;
+      *) write_refused "release $*" ;;
+    esac ;;
+  *)
+    echo "stub gh: unexpected command: $*" >&2
+    exit 99 ;;
+esac
