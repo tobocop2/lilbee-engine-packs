@@ -5,6 +5,7 @@ name: Build and publish engine packs
 # release of this repository for the batch. The release uses the GITHUB_TOKEN of this repository.
 # Raise the pin by editing LILBEE_REF to a new lilbee tag. The plan job fails when the tag is missing.
 # The publish job never edits a release: a tag that exists, or a wheel name that any release ships, stops the run.
+# The matrix of each job comes from cells.yml through scripts/plan.sh. Edit a cell or a build number there.
 on:
   workflow_dispatch:
     inputs:
@@ -48,25 +49,24 @@ jobs:
       lilbee_ref: ${{ steps.pin.outputs.ref }}
       lilbee_tag: ${{ steps.pin.outputs.tag }}
       lilbee_commit: ${{ steps.pin.outputs.commit }}
+      llama: ${{ steps.plan.outputs.llama }}
+      mistralrs: ${{ steps.plan.outputs.mistralrs }}
+      tei: ${{ steps.plan.outputs.tei }}
+      ik: ${{ steps.plan.outputs.ik }}
     steps:
       - uses: actions/checkout@v7
       - id: pin
+        run: bash scripts/lilbee_ref.sh >> "$GITHUB_OUTPUT"
+      # Each job reads its matrix from cells.yml through scripts/plan.sh. An engine that the run does not select gets [].
+      - id: plan
+        env:
+          ENGINE: ${{ inputs.engine }}
         run: |
           set -euo pipefail
-          ref="$(tr -d '[:space:]' < LILBEE_REF)"
-          [[ "${ref}" =~ ^[A-Za-z0-9._-]+$ ]] || { echo "::error::LILBEE_REF must hold one lilbee tag name"; exit 1; }
-          # An annotated tag lists its commit on the second line, the one that ends in ^{}.
-          if ! lines="$(git ls-remote --exit-code --tags https://github.com/tobocop2/lilbee "refs/tags/${ref}" "refs/tags/${ref}^{}")"; then
-            echo "::error::The lilbee tag ${ref} named in LILBEE_REF does not exist. Create the tag on the lilbee commit to build from, or name another tag."
-            exit 1
-          fi
-          sha="$(awk '/\^\{\}$/ { peeled = $1 } NR == 1 { first = $1 } END { print (peeled != "" ? peeled : first) }' <<< "${lines}")"
-          [[ "${sha}" =~ ^[0-9a-f]{40}$ ]] || { echo "::error::The lilbee tag ${ref} does not resolve to a commit."; exit 1; }
-          {
-            echo "ref=refs/tags/${ref}"
-            echo "tag=${ref}"
-            echo "commit=${sha}"
-          } >> "$GITHUB_OUTPUT"
+          plan="$(bash scripts/plan.sh "${ENGINE}")"
+          for engine in llama mistralrs tei ik; do
+            echo "${engine}=$(jq -c ".${engine}" <<< "${plan}")"
+          done >> "$GITHUB_OUTPUT"
 
   cell:
     name: ${{ matrix.cell }}
@@ -77,72 +77,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        include:
-          - cell: windows-x86_64-cpu
-            build_number: 4
-            backend: cpu
-            runner: windows-2022
-            asset: llama-b12032-bin-win-cpu-x64.zip
-            platform: win_amd64
-            license: MIT AND Apache-2.0 WITH LLVM-exception AND LicenseRef-Microsoft-VC-Runtime
-            timeout: 45
-          - cell: windows-x86_64-cuda
-            build_number: 4
-            backend: cuda
-            runner: windows-2022
-            asset: llama-b12032-bin-win-cuda-12.4-x64.zip
-            extra_asset: cudart-llama-bin-win-cuda-12.4-x64.zip
-            platform: win_amd64
-            license: MIT AND LicenseRef-NVIDIA-CUDA-EULA AND Apache-2.0 WITH LLVM-exception AND LicenseRef-Microsoft-VC-Runtime
-            timeout: 60
-          - cell: macos-arm64-metal
-            build_number: 3
-            backend: metal
-            runner: macos-15
-            asset: llama-b12032-bin-macos-arm64.tar.gz
-            platform: macosx_14_0_arm64
-            license: MIT
-            timeout: 45
-          - cell: linux-x86_64-cuda
-            build_number: 3
-            backend: cuda
-            runner: ubuntu-22.04
-            build: source
-            platform: manylinux_2_34_x86_64
-            license: MIT AND LicenseRef-NVIDIA-CUDA-EULA
-            timeout: 350
-          - cell: linux-x86_64-cpu
-            build_number: 3
-            backend: cpu
-            runner: ubuntu-22.04
-            build: source
-            platform: manylinux_2_34_x86_64
-            license: MIT
-            timeout: 120
-          - cell: windows-x86_64-vulkan
-            build_number: 4
-            backend: vulkan
-            runner: windows-2022
-            asset: llama-b12032-bin-win-vulkan-x64.zip
-            platform: win_amd64
-            license: MIT AND Apache-2.0 WITH LLVM-exception AND LicenseRef-Microsoft-VC-Runtime
-            timeout: 45
-          - cell: linux-x86_64-vulkan
-            build_number: 3
-            backend: vulkan
-            runner: ubuntu-22.04
-            build: source
-            platform: manylinux_2_34_x86_64
-            license: MIT
-            timeout: 120
-          - cell: linux-x86_64-rocm
-            build_number: 3
-            backend: rocm
-            runner: ubuntu-22.04
-            build: source
-            platform: manylinux_2_34_x86_64
-            license: MIT AND BSD-3-Clause AND NCSA AND Apache-2.0 WITH LLVM-exception
-            timeout: 350
+        include: ${{ fromJSON(needs.plan.outputs.llama) }}
     defaults:
       run:
         shell: bash
@@ -608,32 +543,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        include:
-          - cell: mistralrs-linux-x86_64-cpu
-            backend: cpu
-            runner: ubuntu-22.04
-            asset: mistralrs-cpu-x86_64-unknown-linux-gnu.tar.gz
-            platform: manylinux_2_35_x86_64
-            rust_target: x86_64-unknown-linux-gnu
-            about_target: x86_64-unknown-linux-musl
-            timeout: 60
-          - cell: mistralrs-windows-x86_64-cpu
-            backend: cpu
-            runner: windows-2022
-            asset: mistralrs-cpu-x86_64-pc-windows-msvc.zip
-            platform: win_amd64
-            rust_target: x86_64-pc-windows-msvc
-            about_target: x86_64-pc-windows-msvc
-            timeout: 60
-          - cell: mistralrs-macos-arm64-metal
-            backend: metal
-            runner: macos-15
-            asset: mistralrs-metal-aarch64-apple-darwin.tar.gz
-            platform: macosx_11_0_arm64
-            rust_target: aarch64-apple-darwin
-            about_target: aarch64-apple-darwin
-            rust_features: metal
-            timeout: 45
+        include: ${{ fromJSON(needs.plan.outputs.mistralrs) }}
     defaults:
       run:
         shell: bash
@@ -834,68 +744,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        include:
-          - cell: tei-linux-x86_64-cpu
-            os: linux
-            backend: cpu
-            runner: ubuntu-22.04
-            platform: manylinux_2_34_x86_64
-            timeout: 120
-          - cell: tei-linux-x86_64-cuda-sm75
-            os: linux
-            backend: cuda-sm75
-            cc: "75"
-            runner: ubuntu-22.04
-            platform: manylinux_2_34_x86_64
-            timeout: 350
-          - cell: tei-linux-x86_64-cuda-sm80
-            os: linux
-            backend: cuda-sm80
-            cc: "80"
-            runner: ubuntu-22.04
-            platform: manylinux_2_34_x86_64
-            timeout: 350
-          - cell: tei-linux-x86_64-cuda-sm86
-            os: linux
-            backend: cuda-sm86
-            cc: "86"
-            runner: ubuntu-22.04
-            platform: manylinux_2_34_x86_64
-            timeout: 350
-          - cell: tei-linux-x86_64-cuda-sm89
-            os: linux
-            backend: cuda-sm89
-            cc: "89"
-            runner: ubuntu-22.04
-            platform: manylinux_2_34_x86_64
-            timeout: 350
-          - cell: tei-linux-x86_64-cuda-sm90
-            os: linux
-            backend: cuda-sm90
-            cc: "90"
-            runner: ubuntu-22.04
-            platform: manylinux_2_34_x86_64
-            timeout: 350
-          - cell: tei-linux-x86_64-cuda-sm100
-            os: linux
-            backend: cuda-sm100
-            cc: "100"
-            runner: ubuntu-22.04
-            platform: manylinux_2_34_x86_64
-            timeout: 350
-          - cell: tei-linux-x86_64-cuda-sm120
-            os: linux
-            backend: cuda-sm120
-            cc: "120"
-            runner: ubuntu-22.04
-            platform: manylinux_2_34_x86_64
-            timeout: 350
-          - cell: tei-macos-arm64-metal
-            os: macos
-            backend: metal
-            runner: macos-15
-            platform: macosx_14_0_arm64
-            timeout: 90
+        include: ${{ fromJSON(needs.plan.outputs.tei) }}
     defaults:
       run:
         shell: bash
@@ -1040,15 +889,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        include:
-          - cell: linux-x86_64-cpu
-            build_number: 4
-            backend: cpu
-            license: MIT
-          - cell: linux-x86_64-cuda
-            build_number: 3
-            backend: cuda
-            license: MIT AND LicenseRef-NVIDIA-CUDA-EULA
+        include: ${{ fromJSON(needs.plan.outputs.ik) }}
     defaults:
       run:
         shell: bash

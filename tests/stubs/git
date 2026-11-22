@@ -1,0 +1,14 @@
+#!/usr/bin/env bash
+# Stub git for the bats tests. It answers `git ls-remote` only.
+#   STUB_GIT_OUTPUT  the text that ls-remote prints
+#   STUB_GIT_RC      the exit status of ls-remote (default 0)
+#   STUB_GIT_LOG     a file that receives one line per call
+printf '%s\n' "$*" >> "${STUB_GIT_LOG:?}"
+if [ "${1:-}" != "ls-remote" ]; then
+  echo "stub git: unexpected command: $*" >&2
+  exit 99
+fi
+if [ -n "${STUB_GIT_OUTPUT:-}" ]; then
+  printf '%s\n' "${STUB_GIT_OUTPUT}"
+fi
+exit "${STUB_GIT_RC:-0}"
