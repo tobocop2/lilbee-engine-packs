@@ -292,14 +292,15 @@ value() {  # key
   [ "$(value BACKEND)" = metal ]
 }
 
-@test "the llama job is the checkouts, the disk steps, the tools, one pack step and the check" {
+@test "the llama job is the checkouts, the disk steps, the tools and one step that builds and checks the pack" {
   local job='.jobs.cell' workflow="${REPO_ROOT}/.github/workflows/build-packs.yml"
-  [ "$(yq -r "[${job}.steps[] | .uses // .name] | @json" "${workflow}")" = '["actions/checkout@v7","actions/checkout@v7","Free disk space for the Vulkan and ROCm build","Free disk space for the CUDA build","Read the Go version","actions/setup-go@v7","actions/setup-python@v7","Install the pinned yq","Build the pack","Start llama-server from the installed wheel","actions/upload-artifact@v7"]' ]
-  [ "$(yq -r "${job}.steps[] | select(.name == \"Build the pack\") | .run" "${workflow}")" = 'bash scripts/pack.sh "${CELL}"' ]
+  [ "$(yq -r "[${job}.steps[] | .uses // .name] | @json" "${workflow}")" = '["actions/checkout@v7","actions/checkout@v7","Free disk space for the Vulkan and ROCm build","Free disk space for the CUDA build","Read the Go version","actions/setup-go@v7","actions/setup-python@v7","Install the pinned yq","Build and check the pack","actions/upload-artifact@v7"]' ]
+  [ "$(yq -r "${job}.steps[] | select(.name == \"Build and check the pack\") | .run" "${workflow}")" = 'bash scripts/pack.sh "${CELL}"' ]
+  [ "$(yq -r "${job}.steps[-2].name" "${workflow}")" = 'Build and check the pack' ]
+  [ "$(yq -r "[${job}.steps[] | select(.\"working-directory\")] | length" "${workflow}")" -eq 0 ]
   [ "$(yq -r "${job}.env.CELL" "${workflow}")" = 'llama-${{ matrix.cell }}' ]
   [ "$(yq -r "${job}.env.LILBEE_DIR" "${workflow}")" = "$(yq -r "${job}.steps[1].with.path" "${workflow}")" ]
   [ "$(yq -r "${job}.steps[1].with.ref" "${workflow}")" = '${{ needs.plan.outputs.lilbee_ref }}' ]
-  [ "$(yq -r "${job}.steps[-2].working-directory" "${workflow}")" = lilbee ]
   [ "$(yq -r "${job}.steps[-1].with.name" "${workflow}")" = 'llama-pack-${{ matrix.cell }}' ]
   [ "$(yq -r "${job}.steps[-1].with.path" "${workflow}")" = 'dist/llama-${{ matrix.cell }}/*' ]
 }
