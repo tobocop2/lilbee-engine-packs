@@ -35,7 +35,7 @@ count() {  # engine
   run bash "${SCRIPT}" all "" "${CELLS}"
   [ "$status" -eq 0 ]
   [ "$(count llama)" -eq 8 ]
-  [ "$(count mistralrs)" -eq 3 ]
+  [ "$(count mistralrs)" -eq 9 ]
   [ "$(count tei)" -eq 0 ]
   [ "$(count ik)" -eq 0 ]
 }
