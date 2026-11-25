@@ -300,7 +300,7 @@ created() { grep -c '^release create' "${STUB_GH_LOG}" || true; }
 @test "the publish job runs the script in one step and keeps its condition, needs, permissions and download pattern" {
   workflow="${REPO_ROOT}/.github/workflows/build-packs.yml"
   [ "$(yq '.jobs.publish.steps[] | select(.name == "Create the release and upload the wheels") | .run' "${workflow}")" = 'bash scripts/publish.sh packs "${SUFFIX}" "${LILBEE_TAG}" "${LILBEE_COMMIT}"' ]
-  [ "$(yq '.jobs.publish.if' "${workflow}")" = '${{ inputs.publish && !cancelled() && !contains(needs.*.result, '"'failure'"') }}' ]
+  [ "$(yq '.jobs.publish.if' "${workflow}")" = '${{ inputs.publish && !cancelled() }}' ]
   [ "$(yq -o=json -I=0 '.jobs.publish.needs' "${workflow}")" = '["plan","cell","mistralrs","tei","ik"]' ]
   [ "$(yq '.jobs.publish.permissions.contents' "${workflow}")" = "write" ]
   [ "$(yq '.jobs.publish.steps[] | select(.uses == "actions/download-artifact@v8") | .with.pattern' "${workflow}")" = "*-pack-*" ]
