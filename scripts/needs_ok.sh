@@ -25,6 +25,11 @@ case "${engine}" in
     ;;
 esac
 
+if ! command -v jq > /dev/null; then
+  echo "needs_ok: jq is not installed, so the release is not published." >&2
+  exit 1
+fi
+
 blocked="$(jq -r 'to_entries[] | select(.value.result != "success" and .value.result != "skipped") | "\(.key): \(.value.result)"' <<< "${needs}")"
 for job in "${selected[@]}"; do
   result="$(jq -r --arg job "${job}" '.[$job].result // "missing"' <<< "${needs}")"
