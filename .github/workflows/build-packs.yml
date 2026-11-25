@@ -168,6 +168,14 @@ jobs:
           bash scripts/install_yq.sh "${RUNNER_TEMP}/bin"
           echo "${RUNNER_TEMP}/bin" >> "$GITHUB_PATH"
 
+      - name: Free disk space for the CUDA archive
+        if: startsWith(matrix.backend, 'cuda-')
+        run: |
+          set -euo pipefail
+          # The CUDA archive, its five libraries, the unpacked tree and the wheel need several GB.
+          sudo rm -rf /usr/share/dotnet /opt/ghc /usr/local/lib/android
+          df -h / | tail -1
+
       - name: Build and check the pack
         run: bash scripts/pack.sh "${CELL}"
 

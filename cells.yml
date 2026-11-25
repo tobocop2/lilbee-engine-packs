@@ -84,6 +84,11 @@ engines:
       MISTRALRS_CHAT_MODEL: HuggingFaceTB/SmolLM2-135M-Instruct
       CARGO_ABOUT_VERSION: 0.9.3
       MACOSX_DEPLOYMENT_TARGET: '14.0'
+      # The CUDA 12.8 archives of the release: the toolkit of their libraries and the tag of the NCCL in them
+      # (libnccl.so.2 reports 2.25.1 built with CUDA 12.8). Upstream builds them with the features
+      # "cuda flash-attn nccl" (release.yml of v0.9.5, linux-cuda matrix, cuda_asset "128").
+      CUDA_VERSION: 12.8.1
+      NCCL_TAG: v2.25.1-1
     cells:
       - cell: mistralrs-linux-x86_64-cpu
         backend: cpu
@@ -112,6 +117,60 @@ engines:
         about_target: aarch64-apple-darwin
         rust_features: metal
         timeout: 45
+      - cell: mistralrs-linux-x86_64-cuda-sm80
+        backend: cuda-sm80
+        runner: ubuntu-22.04
+        asset: mistralrs-cuda128-sm80-x86_64-unknown-linux-gnu.tar.gz
+        platform: manylinux_2_35_x86_64
+        rust_target: x86_64-unknown-linux-gnu
+        about_target: x86_64-unknown-linux-musl
+        rust_features: cuda,flash-attn,nccl
+        timeout: 60
+      - cell: mistralrs-linux-x86_64-cuda-sm86
+        backend: cuda-sm86
+        runner: ubuntu-22.04
+        asset: mistralrs-cuda128-sm86-x86_64-unknown-linux-gnu.tar.gz
+        platform: manylinux_2_35_x86_64
+        rust_target: x86_64-unknown-linux-gnu
+        about_target: x86_64-unknown-linux-musl
+        rust_features: cuda,flash-attn,nccl
+        timeout: 60
+      - cell: mistralrs-linux-x86_64-cuda-sm89
+        backend: cuda-sm89
+        runner: ubuntu-22.04
+        asset: mistralrs-cuda128-sm89-x86_64-unknown-linux-gnu.tar.gz
+        platform: manylinux_2_35_x86_64
+        rust_target: x86_64-unknown-linux-gnu
+        about_target: x86_64-unknown-linux-musl
+        rust_features: cuda,flash-attn,nccl
+        timeout: 60
+      - cell: mistralrs-linux-x86_64-cuda-sm90
+        backend: cuda-sm90
+        runner: ubuntu-22.04
+        asset: mistralrs-cuda128-sm90-x86_64-unknown-linux-gnu.tar.gz
+        platform: manylinux_2_35_x86_64
+        rust_target: x86_64-unknown-linux-gnu
+        about_target: x86_64-unknown-linux-musl
+        rust_features: cuda,flash-attn,nccl
+        timeout: 60
+      - cell: mistralrs-linux-x86_64-cuda-sm100
+        backend: cuda-sm100
+        runner: ubuntu-22.04
+        asset: mistralrs-cuda128-sm100-x86_64-unknown-linux-gnu.tar.gz
+        platform: manylinux_2_35_x86_64
+        rust_target: x86_64-unknown-linux-gnu
+        about_target: x86_64-unknown-linux-musl
+        rust_features: cuda,flash-attn,nccl
+        timeout: 60
+      - cell: mistralrs-linux-x86_64-cuda-sm120
+        backend: cuda-sm120
+        runner: ubuntu-22.04
+        asset: mistralrs-cuda128-sm120-x86_64-unknown-linux-gnu.tar.gz
+        platform: manylinux_2_35_x86_64
+        rust_target: x86_64-unknown-linux-gnu
+        about_target: x86_64-unknown-linux-musl
+        rust_features: cuda,flash-attn,nccl
+        timeout: 60
   tei:
     pins:
       TEI_REPO: https://github.com/huggingface/text-embeddings-inference.git

@@ -352,9 +352,9 @@ value() {  # key
   grep -qx 'EXTRA_ASSET=' "${OUT_DIR}/env.txt"
 }
 
-@test "the mistralrs job is the checkouts, the tools and one pack step" {
+@test "the mistralrs job is the checkouts, the tools, the disk step and one pack step" {
   local job='.jobs.mistralrs' workflow="${REPO_ROOT}/.github/workflows/build-packs.yml"
-  [ "$(yq -r "[${job}.steps[] | .uses // .name] | @json" "${workflow}")" = '["actions/checkout@v7","actions/checkout@v7","actions/setup-python@v7","Install the pinned yq","Build and check the pack","actions/upload-artifact@v7"]' ]
+  [ "$(yq -r "[${job}.steps[] | .uses // .name] | @json" "${workflow}")" = '["actions/checkout@v7","actions/checkout@v7","actions/setup-python@v7","Install the pinned yq","Free disk space for the CUDA archive","Build and check the pack","actions/upload-artifact@v7"]' ]
   [ "$(yq -r "${job}.steps[] | select(.name == \"Build and check the pack\") | .run" "${workflow}")" = 'bash scripts/pack.sh "${CELL}"' ]
   [ "$(yq -r "${job}.env.CELL" "${workflow}")" = '${{ matrix.cell }}' ]
   [ "$(yq -r "${job}.env.LILBEE_DIR" "${workflow}")" = "$(yq -r "${job}.steps[1].with.path" "${workflow}")" ]
@@ -370,9 +370,10 @@ value() {  # key
   [ "$(yq '[.jobs.mistralrs.steps[] | select(has("shell"))] | length' "${workflow}")" -eq 0 ]
 }
 
-@test "only the yq step of the mistralrs job has a condition, and it runs on Windows" {
+@test "the yq step of the mistralrs job runs on Windows and the disk step on a CUDA cell" {
   local workflow="${REPO_ROOT}/.github/workflows/build-packs.yml"
-  [ "$(yq -r '.jobs.mistralrs.steps[] | select(has("if")) | .name + ": " + .if' "${workflow}")" = "Install the pinned yq: runner.os == 'Windows'" ]
+  [ "$(yq -r '.jobs.mistralrs.steps[] | select(has("if")) | .name + ": " + .if' "${workflow}")" = "Install the pinned yq: runner.os == 'Windows'
+Free disk space for the CUDA archive: startsWith(matrix.backend, 'cuda-')" ]
   [ "$(yq -r '.jobs.mistralrs.steps[] | select(.name == "Install the pinned yq") | .run' "${workflow}")" = 'bash scripts/install_yq.sh "${RUNNER_TEMP}/bin"
 echo "${RUNNER_TEMP}/bin" >> "$GITHUB_PATH"' ]
 }
