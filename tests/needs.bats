@@ -63,6 +63,14 @@ needs() {
   [ "${status}" -eq 1 ]
 }
 
+@test "a missing jq blocks the publish and the message names jq" {
+  local json
+  json="$(needs success success success skipped skipped)"
+  run env PATH="${BATS_TEST_TMPDIR}" /bin/bash "${SCRIPT}" "${json}" all
+  [ "${status}" -eq 1 ]
+  [[ "${output}" == *"needs_ok: jq is not installed, so the release is not published."* ]]
+}
+
 @test "the publish job runs the check before it uploads" {
   run yq '.jobs.publish.steps[] | select(.run != null) | .run' "${REPO_ROOT}/.github/workflows/build-packs.yml"
   [ "${status}" -eq 0 ]
