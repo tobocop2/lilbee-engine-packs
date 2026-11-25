@@ -7,7 +7,7 @@ Each release of this repository is one batch of wheels. A batch has its own tag.
 
 1. Set `LILBEE_REF` to a tag of `tobocop2/lilbee`. The build uses `tools/wheel-build` and the pack tooling at that tag. A tag keeps its commit reachable. The run fails at once if the tag does not exist.
 2. Run the `Build and publish engine packs` workflow. Pick an engine and give the batch a `tag_suffix` that no earlier tag has. The choice `all` builds llama.cpp and mistral.rs. Pick `tei` or `ik` by name.
-3. The workflow builds each wheel, then creates the release with the `GITHUB_TOKEN` of this repository. No other token or secret exists.
+3. The workflow builds each wheel, then creates the release with the `GITHUB_TOKEN` of this repository. No other token or secret exists. Set `prerelease` to create the release as a prerelease in the same call.
 
 ## Use a batch in lilbee
 

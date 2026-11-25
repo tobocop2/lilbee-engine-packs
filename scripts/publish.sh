@@ -11,6 +11,7 @@
 #
 # <tag-suffix> must be present and may be empty. The other three values must not be empty.
 # GITHUB_REPOSITORY (owner/name) names the repository; GH_TOKEN (contents: write) lets gh write.
+# PRERELEASE=true creates the release as a prerelease in the same call. Any other value, or none, does not.
 # --dry-run reads the releases, prints the tag, the asset names and the notes, and makes no write call.
 
 set -euo pipefail
@@ -72,6 +73,11 @@ if [ "${dry_run}" -eq 1 ]; then
   exit 0
 fi
 
+prerelease_flag=()
+if [ "${PRERELEASE:-false}" = "true" ]; then
+  prerelease_flag=(--prerelease)
+fi
+
 gh release create "${tag}" "${wheels[@]}" --repo "${GITHUB_REPOSITORY}" --latest=false \
-  --title "${tag}" --notes "${notes}"
+  ${prerelease_flag[@]+"${prerelease_flag[@]}"} --title "${tag}" --notes "${notes}"
 echo "Published ${tag}" >> "${GITHUB_STEP_SUMMARY:-/dev/null}"

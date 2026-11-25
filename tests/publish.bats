@@ -48,6 +48,38 @@ created() { grep -c '^release create' "${STUB_GH_LOG}" || true; }
   grep -qxF "release create engine-packs-${TODAY} ${DIR}/${WHEEL_4} --repo owner/packs --latest=false --title engine-packs-${TODAY} --notes Engine packs built from lilbee tag pin-3 (commit abc123)." "${STUB_GH_LOG}"
 }
 
+@test "PRERELEASE=true makes one create call with --prerelease and --latest=false" {
+  export STUB_GH_ALLOW_WRITE=1
+  export PRERELEASE=true
+  wheel "${WHEEL_4}"
+  run bash "${SCRIPT}" "${DIR}" "" pin-3 abc123
+  [ "$status" -eq 0 ]
+  [ "$(created)" -eq 1 ]
+  line="$(grep '^release create' "${STUB_GH_LOG}")"
+  [[ "${line}" == *" --prerelease "* ]]
+  [[ "${line}" == *" --latest=false "* ]]
+}
+
+@test "PRERELEASE=false or unset leaves --prerelease out" {
+  export STUB_GH_ALLOW_WRITE=1
+  wheel "${WHEEL_4}"
+  PRERELEASE=false run bash "${SCRIPT}" "${DIR}" "" pin-3 abc123
+  [ "$status" -eq 0 ]
+  unset PRERELEASE
+  run bash "${SCRIPT}" "${DIR}" llama pin-3 abc123
+  [ "$status" -eq 0 ]
+  [ "$(created)" -eq 2 ]
+  ! grep -q -- '--prerelease' "${STUB_GH_LOG}"
+  [ "$(grep -c -- '--latest=false' "${STUB_GH_LOG}")" -eq 2 ]
+}
+
+@test "the workflow has a prerelease input that defaults to false and the publish job passes it as PRERELEASE" {
+  workflow="${REPO_ROOT}/.github/workflows/build-packs.yml"
+  [ "$(yq '.on.workflow_dispatch.inputs.prerelease.type' "${workflow}")" = "boolean" ]
+  [ "$(yq '.on.workflow_dispatch.inputs.prerelease.default' "${workflow}")" = "false" ]
+  [ "$(yq '.jobs.publish.env.PRERELEASE' "${workflow}")" = '${{ inputs.prerelease }}' ]
+}
+
 @test "a tag suffix is appended to the tag" {
   export STUB_GH_ALLOW_WRITE=1
   wheel "${WHEEL_4}"
