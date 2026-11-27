@@ -83,6 +83,17 @@ needs() {
   [[ "${output}" == *"plan: missing"* ]]
 }
 
+@test "a job that the plan gave cells and the needs do not list blocks the publish" {
+  run bash "${SCRIPT}" "$(needs success success success skipped skipped | jq -c 'del(.mistralrs)')"
+  [ "${status}" -eq 1 ]
+  [[ "${output}" == *"mistralrs: missing, and the plan gives it cells"* ]]
+}
+
+@test "the lilbee commit and the any output of the plan are not jobs" {
+  run bash "${SCRIPT}" "$(needs success success success skipped skipped | jq -c '.plan.outputs.lilbee_ref = "abc"')"
+  [ "${status}" -eq 0 ]
+}
+
 @test "a missing argument is refused" {
   run bash "${SCRIPT}"
   [ "${status}" -ne 0 ]

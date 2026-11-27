@@ -9,7 +9,8 @@
 # A cancelled or failed job blocks the publish: a cancelled job is not a failure to GitHub, and
 # the "failure" test of the job condition let a run publish 8 of 9 wheels.
 # A job that the plan gave cells must be success, so such a job that GitHub skipped blocks the publish too.
-# A plan that gives no job a cell blocks the publish, because the run built no wheel.
+# A plan that gives no job a cell blocks the publish, because the run built no wheel. A job that the plan gave
+# cells and that the needs do not list blocks it too.
 
 set -euo pipefail
 
@@ -25,7 +26,11 @@ blocked="$(jq -r '
   | [to_entries[] | select(.key != "plan")
      | (if .key == "cell" then "llama" else .key end) as $engine
      | .planned = (($plan[$engine] // "[]") != "[]")] as $builds
+  | . as $needs
   | (if .plan.result != "success" then "plan: \(.plan.result // "missing")" else empty end),
+    ($plan | to_entries[] | select((.value | type) == "string" and (.value | startswith("[")) and .value != "[]")
+     | (if .key == "llama" then "cell" else .key end) as $job
+     | select($needs[$job] == null) | "\($job): missing, and the plan gives it cells"),
     ($builds[] | select(.value.result != "success" and (.planned or .value.result != "skipped"))
      | "\(.key): \(.value.result)\(if .planned and .value.result == "skipped" then ", and the plan gives it cells" else "" end)"),
     (if [$builds[] | select(.planned)] == [] then "no build job: the plan gives no job a cell" else empty end)
