@@ -277,3 +277,16 @@ engines:
         build_number: 3
         backend: cuda
         license: MIT AND LicenseRef-NVIDIA-CUDA-EULA
+  # The other pins of the mlx pack are in engines/mlx.env of the lilbee tree. WHEEL_VERSION is its MLX_LM_VERSION;
+  # scripts/pack.sh stops when the recipe writes a wheel of another version.
+  mlx:
+    pins:
+      WHEEL_VERSION: 0.32.2
+    cells:
+      - cell: macos-arm64-metal
+        build_number: 1
+        backend: metal
+        runner: macos-15
+        platform: macosx_14_0_arm64
+        license: MIT
+        timeout: 45

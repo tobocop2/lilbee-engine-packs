@@ -1,6 +1,6 @@
 # lilbee engine packs
 
-Engine wheels for [lilbee](https://github.com/tobocop2/lilbee): llama.cpp, mistral.rs, text-embeddings-inference and ik_llama.cpp.
+Engine wheels for [lilbee](https://github.com/tobocop2/lilbee): llama.cpp, mistral.rs, text-embeddings-inference, ik_llama.cpp and mlx.
 Each release of this repository is one batch of wheels. A batch has its own tag. Nothing edits a release after it is published.
 
 ## Build a batch

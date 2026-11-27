@@ -63,12 +63,22 @@ c.whl engine-packs-1" ]
 
 @test "each build job runs when the plan gives it cells, and reads its matrix from the plan" {
   local job engine
-  for job in cell mistralrs tei ik; do
+  for job in cell mistralrs tei ik mlx; do
     engine="${job}"
     [ "${job}" != cell ] || engine=llama
     [ "$(yq -r ".jobs.${job}.if" "${WORKFLOW}")" = "needs.plan.outputs.${engine} != '[]'" ]
     [ "$(yq -r ".jobs.${job}.strategy.matrix.include" "${WORKFLOW}")" = "\${{ fromJSON(needs.plan.outputs.${engine}) }}" ]
   done
+}
+
+@test "the engine input offers all and every engine of cells.yml" {
+  [ "$(yq -r '.on.workflow_dispatch.inputs.engine.options | join(" ")' "${WORKFLOW}")" = "all $(yq -r '.engines | keys | join(" ")' "${REPO_ROOT}/cells.yml")" ]
+}
+
+@test "the mlx job builds the id that pack.sh gives an mlx cell and uploads its folder" {
+  [ "$(yq -r '.jobs.mlx.env.CELL' "${WORKFLOW}")" = 'mlx-${{ matrix.cell }}' ]
+  [ "$(yq -r '.jobs.mlx.steps[] | select(.uses == "actions/upload-artifact@v7") | .with.path' "${WORKFLOW}")" = 'dist/mlx-${{ matrix.cell }}/*' ]
+  [ "$(yq -r '.jobs.mlx.steps[] | select(.uses == "actions/upload-artifact@v7") | .with.name' "${WORKFLOW}")" = 'mlx-pack-${{ matrix.cell }}' ]
 }
 
 @test "the engine input is not read past the plan step" {
@@ -102,7 +112,7 @@ c.whl engine-packs-1" ]
   [ "$(sed -n 's/^ik=//p' out.txt | jq length)" -eq 2 ]
   [ "$(sed -n 's/^llama=//p' out.txt)" = "[]" ]
   [ "$(sed -n 's/^any=//p' out.txt)" = true ]
-  [ "$(cut -d= -f1 out.txt | tr '\n' ' ')" = "llama mistralrs tei ik any " ]
+  [ "$(cut -d= -f1 out.txt | tr '\n' ' ')" = "llama mistralrs tei ik mlx any " ]
   yq -r '.engines.ik.cells[] | "lilbee_engine_ik_llama_cpp-0+git13cffc006b82-\(.build_number).\(.backend)-py3-none-manylinux_2_34_x86_64.whl r"' cells.yml > published.txt
   ENGINE=ik GITHUB_OUTPUT=out2.txt run bash -c "${script}"
   [ "$status" -eq 0 ]

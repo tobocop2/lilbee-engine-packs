@@ -11,15 +11,17 @@ setup() {
   PLANNED="llama mistralrs"
 }
 
-# needs <plan> <cell> <mistralrs> <tei> <ik>: the toJSON(needs) of the publish job, with these results.
+# needs <plan> <cell> <mistralrs> <tei> <ik> [mlx]: the toJSON(needs) of the publish job, with these results.
+# The mlx job is skipped when the call gives it no result.
 # The plan outputs give one cell to each engine of PLANNED and none to the others.
 needs() {
   jq -cn --arg planned "${PLANNED}" --args '[$ARGS.positional[]] as $r
     | ($planned | split(" ") | map(select(. != ""))) as $p
-    | {plan: {result: $r[0], outputs: ({llama: "[]", mistralrs: "[]", tei: "[]", ik: "[]", any: "false"}
+    | {plan: {result: $r[0], outputs: ({llama: "[]", mistralrs: "[]", tei: "[]", ik: "[]", mlx: "[]", any: "false"}
         + ([$p[] | {key: ., value: "[{\"cell\":\"x\"}]"}] | from_entries)
         + {any: (if $p == [] then "false" else "true" end)})},
-       cell: {result: $r[1]}, mistralrs: {result: $r[2]}, tei: {result: $r[3]}, ik: {result: $r[4]}}' "$@"
+       cell: {result: $r[1]}, mistralrs: {result: $r[2]}, tei: {result: $r[3]}, ik: {result: $r[4]},
+       mlx: {result: ($r[5] // "skipped")}}' "$@"
 }
 
 @test "every job that the plan gave cells succeeded and the others are skipped" {
@@ -31,6 +33,19 @@ needs() {
   PLANNED="tei"
   run bash "${SCRIPT}" "$(needs success skipped skipped success skipped)"
   [ "${status}" -eq 0 ]
+}
+
+@test "the plan gave cells to mlx alone, which succeeded, and the other jobs are skipped" {
+  PLANNED="mlx"
+  run bash "${SCRIPT}" "$(needs success skipped skipped skipped skipped success)"
+  [ "${status}" -eq 0 ]
+}
+
+@test "a failed mlx job blocks the publish" {
+  PLANNED="mlx"
+  run bash "${SCRIPT}" "$(needs success skipped skipped skipped skipped failure)"
+  [ "${status}" -eq 1 ]
+  [[ "${output}" == *"mlx: failure"* ]]
 }
 
 @test "the plan gave cells to ik alone, as a run of all does when only ik is not published" {
@@ -118,7 +133,7 @@ needs() {
 
 @test "the publish job needs every build job" {
   run yq -r '.jobs.publish.needs | join(" ")' "${REPO_ROOT}/.github/workflows/build-packs.yml"
-  [ "${output}" = "plan cell mistralrs tei ik" ]
+  [ "${output}" = "plan cell mistralrs tei ik mlx" ]
 }
 
 @test "the check reads the plan output of each build job, and the plan job lists one for each engine" {
