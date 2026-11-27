@@ -33,6 +33,10 @@ engines:
     pins: {UPSTREAM_COMMIT: 13cffc006b82e03e4d89cbb8c7327f0255ae3d18, PLATFORM: manylinux_2_34_x86_64}
     cells:
       - {cell: linux-cpu, build_number: 4, backend: cpu}
+  mlx:
+    pins: {WHEEL_VERSION: 0.32.2}
+    cells:
+      - {cell: macos-metal, build_number: 1, backend: metal, platform: macosx_14_0_arm64, license: MIT}
 EOF
 }
 
@@ -55,7 +59,8 @@ WIN_WHEEL="lilbee_engine_llama_cpp-1.2.3-4.cpu-py3-none-win_amd64.whl"
   [ "$(count mistralrs)" -eq 9 ]
   [ "$(count tei)" -eq 9 ]
   [ "$(count ik)" -eq 2 ]
-  [ "$(jq -r 'keys_unsorted | join(" ")' <<< "$output")" = "llama mistralrs tei ik" ]
+  [ "$(count mlx)" -eq 1 ]
+  [ "$(jq -r 'keys_unsorted | join(" ")' <<< "$output")" = "llama mistralrs tei ik mlx" ]
 }
 
 @test "no argument means all" {
@@ -92,13 +97,13 @@ WIN_WHEEL="lilbee_engine_llama_cpp-1.2.3-4.cpu-py3-none-win_amd64.whl"
 @test "an unknown engine fails and names the engines of the cells file" {
   run bash "${SCRIPT}" openvino "" "${CELLS}"
   [ "$status" -eq 1 ]
-  [[ "$output" == *"unknown engine 'openvino'. Use all, llama, mistralrs, tei, ik."* ]]
+  [[ "$output" == *"unknown engine 'openvino'. Use all, llama, mistralrs, tei, ik, mlx."* ]]
 }
 
 @test "the output for a fixture is exactly the expected JSON" {
   run bash "${SCRIPT}" all "" "${FIXTURE}"
   [ "$status" -eq 0 ]
-  [ "$output" = '{"llama":[{"cell":"win-cpu","build_number":4,"backend":"cpu","platform":"win_amd64","timeout":45},{"cell":"linux-cpu","build_number":3,"backend":"cpu","platform":"manylinux_2_34_x86_64","build":"source"}],"mistralrs":[{"cell":"mistralrs-linux","build_number":2,"backend":"cuda-sm80","platform":"manylinux_2_35_x86_64"}],"tei":[{"cell":"tei-cpu","build_number":1,"backend":"cpu","cc":"75","os":"linux","platform":"manylinux_2_34_x86_64"}],"ik":[{"cell":"linux-cpu","build_number":4,"backend":"cpu"}]}' ]
+  [ "$output" = '{"llama":[{"cell":"win-cpu","build_number":4,"backend":"cpu","platform":"win_amd64","timeout":45},{"cell":"linux-cpu","build_number":3,"backend":"cpu","platform":"manylinux_2_34_x86_64","build":"source"}],"mistralrs":[{"cell":"mistralrs-linux","build_number":2,"backend":"cuda-sm80","platform":"manylinux_2_35_x86_64"}],"tei":[{"cell":"tei-cpu","build_number":1,"backend":"cpu","cc":"75","os":"linux","platform":"manylinux_2_34_x86_64"}],"ik":[{"cell":"linux-cpu","build_number":4,"backend":"cpu"}],"mlx":[{"cell":"macos-metal","build_number":1,"backend":"metal","platform":"macosx_14_0_arm64","license":"MIT"}]}' ]
 }
 
 @test "a value that is a string in the file stays a string" {
@@ -201,10 +206,11 @@ WIN_WHEEL="lilbee_engine_llama_cpp-1.2.3-4.cpu-py3-none-win_amd64.whl"
   published lilbee_engine_mistral_rs-0.9.5-2.cuda_sm80-py3-none-manylinux_2_35_x86_64.whl r2
   published lilbee_engine_tei-1.9.4-1.cpu-py3-none-manylinux_2_34_x86_64.whl r3
   published "${IK_WHEEL}" r4
+  published lilbee_engine_mlx-0.32.2-1.metal-py3-none-macosx_14_0_arm64.whl r5
   run --separate-stderr bash "${SCRIPT}" all "" "${FIXTURE}" "${PUBLISHED}"
   [ "$status" -eq 0 ]
-  [ "$output" = '{"llama":[],"mistralrs":[],"tei":[],"ik":[]}' ]
-  [ "$(grep -c ' is in the release ' <<< "$stderr")" -eq 5 ]
+  [ "$output" = '{"llama":[],"mistralrs":[],"tei":[],"ik":[],"mlx":[]}' ]
+  [ "$(grep -c ' is in the release ' <<< "$stderr")" -eq 6 ]
 }
 
 @test "a run whose every cell is published plans no cell and does not fail" {

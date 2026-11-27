@@ -64,6 +64,15 @@ pin() {  # engine key
   [ "$(yq -r '.jobs.ik.env | keys | @json' "${WORKFLOW}")" = '["LILBEE_DIR","CELL"]' ]
 }
 
+@test "the mlx pin is in cells.yml only, and the one mlx cell is the macOS 14 Metal cell" {
+  [[ "$(pin mlx WHEEL_VERSION)" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]]
+  run grep -F "$(pin mlx WHEEL_VERSION)" "${WORKFLOW}"
+  [ "$status" -eq 1 ]
+  [ "$(yq -r '.jobs.mlx.env | keys | @json' "${WORKFLOW}")" = '["LILBEE_DIR","CELL"]' ]
+  [ "$(yq -r '.engines.mlx.cells | length' "${CELLS}")" -eq 1 ]
+  [ "$(yq -r '.engines.mlx.cells[0] | [.backend, .platform, .runner] | join(" ")' "${CELLS}")" = "metal macosx_14_0_arm64 macos-15" ]
+}
+
 @test "the workflow names no image, so every cell builds in the image of cells.yml" {
   run grep -F 'quay.io/' "${WORKFLOW}"
   [ "$status" -eq 1 ]

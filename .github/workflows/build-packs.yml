@@ -1,6 +1,6 @@
 name: Build and publish engine packs
 
-# Builds the engine wheels (llama.cpp, mistral.rs, text-embeddings-inference, ik_llama.cpp) from the lilbee
+# Builds the engine wheels (llama.cpp, mistral.rs, text-embeddings-inference, ik_llama.cpp, mlx) from the lilbee
 # tree at the lilbee tag in LILBEE_REF, keeps each wheel as a run artifact, and publishes one
 # release of this repository for the batch. The release uses the GITHUB_TOKEN of this repository.
 # Raise the pin by editing LILBEE_REF to a new lilbee tag. The plan job fails when the tag is missing.
@@ -15,7 +15,7 @@ on:
       engine:
         description: The engine to build.
         type: choice
-        options: [all, llama, mistralrs, tei, ik]
+        options: [all, llama, mistralrs, tei, ik, mlx]
         default: all
       tag_suffix:
         description: Optional text after the date in the release tag, such as tei or llama-gpu.
@@ -50,6 +50,7 @@ jobs:
       mistralrs: ${{ steps.plan.outputs.mistralrs }}
       tei: ${{ steps.plan.outputs.tei }}
       ik: ${{ steps.plan.outputs.ik }}
+      mlx: ${{ steps.plan.outputs.mlx }}
       any: ${{ steps.plan.outputs.any }}
     steps:
       - uses: actions/checkout@v7
@@ -306,9 +307,48 @@ jobs:
           if-no-files-found: error
           retention-days: 7
 
+  mlx:
+    name: mlx-${{ matrix.cell }}
+    needs: plan
+    if: needs.plan.outputs.mlx != '[]'
+    runs-on: ${{ matrix.runner }}
+    timeout-minutes: ${{ matrix.timeout }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include: ${{ fromJSON(needs.plan.outputs.mlx) }}
+    defaults:
+      run:
+        shell: bash
+    env:
+      LILBEE_DIR: lilbee
+      CELL: mlx-${{ matrix.cell }}
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: actions/checkout@v7
+        with:
+          repository: tobocop2/lilbee
+          ref: ${{ needs.plan.outputs.lilbee_ref }}
+          path: lilbee
+
+      - uses: actions/setup-python@v7
+        with:
+          python-version: "3.12"
+
+      - name: Build and check the pack
+        run: bash scripts/pack.sh "${CELL}"
+
+      - uses: actions/upload-artifact@v7
+        with:
+          name: mlx-pack-${{ matrix.cell }}
+          path: dist/mlx-${{ matrix.cell }}/*
+          if-no-files-found: error
+          retention-days: 7
+
   publish:
     name: Publish the release
-    needs: [plan, cell, mistralrs, tei, ik]
+    needs: [plan, cell, mistralrs, tei, ik, mlx]
     # The job runs after skipped build jobs (an engine with no planned cell). The first step then fails on any
     # cancelled or failed job, which a job condition cannot test without also blocking on the skipped ones.
     # A plan with no cell, where every selected cell is published, publishes nothing.

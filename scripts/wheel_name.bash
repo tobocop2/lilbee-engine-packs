@@ -17,7 +17,7 @@
 WHEEL_NAME_JQ='
 def wheel_name($engine; $pins):
   ({llama: "lilbee_engine_llama_cpp", mistralrs: "lilbee_engine_mistral_rs",
-    tei: "lilbee_engine_tei", ik: "lilbee_engine_ik_llama_cpp"}[$engine]
+    tei: "lilbee_engine_tei", ik: "lilbee_engine_ik_llama_cpp", mlx: "lilbee_engine_mlx"}[$engine]
     // error("the engine \($engine) has no distribution in scripts/wheel_name.bash")) as $dist
   | (if $pins.WHEEL_VERSION != null then $pins.WHEEL_VERSION | tostring
      elif $pins.MISTRALRS_TAG != null then $pins.MISTRALRS_TAG | tostring | ltrimstr("v")
