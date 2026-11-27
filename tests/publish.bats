@@ -288,9 +288,9 @@ created() { grep -c '^release create' "${STUB_GH_LOG}" || true; }
   [ ! -s "${STUB_GH_LOG}" ]
 }
 
-@test "the publish job checks out the repository without a stored token, passes the suffix and calls the script in one line" {
+@test "the publish job checks out both repositories without a stored token, passes the suffix and calls the script in one line" {
   workflow="${REPO_ROOT}/.github/workflows/build-packs.yml"
-  [ "$(yq '.jobs.publish.steps[] | select(.uses == "actions/checkout@v7") | .with."persist-credentials"' "${workflow}")" = "false" ]
+  [ "$(yq -o=json -I=0 '[.jobs.publish.steps[] | select(.uses == "actions/checkout@v7") | .with."persist-credentials"]' "${workflow}")" = "[false,false]" ]
   [ "$(yq '.jobs.publish.env.SUFFIX' "${workflow}")" = '${{ inputs.tag_suffix }}' ]
   [ "$(yq '.jobs.publish.steps[] | select(.name == "Create the release and upload the wheels") | .run' "${workflow}")" = 'bash scripts/publish.sh packs "${SUFFIX}" "${LILBEE_TAG}" "${LILBEE_COMMIT}"' ]
   [ "$(yq '.jobs.publish.steps[] | select(.name == "Create the release and upload the wheels") | .env.LILBEE_TAG' "${workflow}")" = '${{ needs.plan.outputs.lilbee_tag }}' ]
@@ -300,7 +300,7 @@ created() { grep -c '^release create' "${STUB_GH_LOG}" || true; }
 @test "the publish job runs the script in one step and keeps its condition, needs, permissions and download pattern" {
   workflow="${REPO_ROOT}/.github/workflows/build-packs.yml"
   [ "$(yq '.jobs.publish.steps[] | select(.name == "Create the release and upload the wheels") | .run' "${workflow}")" = 'bash scripts/publish.sh packs "${SUFFIX}" "${LILBEE_TAG}" "${LILBEE_COMMIT}"' ]
-  [ "$(yq '.jobs.publish.if' "${workflow}")" = '${{ inputs.publish && !cancelled() }}' ]
+  [ "$(yq '.jobs.publish.if' "${workflow}")" = "\${{ inputs.publish && !cancelled() && needs.plan.outputs.any == 'true' }}" ]
   [ "$(yq -o=json -I=0 '.jobs.publish.needs' "${workflow}")" = '["plan","cell","mistralrs","tei","ik"]' ]
   [ "$(yq '.jobs.publish.permissions.contents' "${workflow}")" = "write" ]
   [ "$(yq '.jobs.publish.steps[] | select(.uses == "actions/download-artifact@v8") | .with.pattern' "${workflow}")" = "*-pack-*" ]

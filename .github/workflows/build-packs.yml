@@ -6,6 +6,9 @@ name: Build and publish engine packs
 # Raise the pin by editing LILBEE_REF to a new lilbee tag. The plan job fails when the tag is missing.
 # The publish job never edits a release: a tag that exists, or a wheel name that any release ships, stops the run.
 # The matrix of each job comes from cells.yml through scripts/plan.sh. Edit a cell or a build number there.
+# The plan drops each cell whose wheel a release ships, so "all" builds only the cells that are not published.
+# lilbee's own install checks gate the run: the plan screens the licence that each cell declares, and the
+# publish job checks each wheel before the release. Both run tools/check_pack_licences.py of the lilbee tag.
 on:
   workflow_dispatch:
     inputs:
@@ -31,14 +34,15 @@ permissions:
   contents: read
 
 jobs:
-  # The llama and mistralrs jobs run when needs.plan.outputs.engine is "all" or their own name.
-  # The tei and ik jobs run only when it is their own name: "all" does not start them.
+  # Each build job runs when the plan gives it cells. The plan is the one switch: "all" selects every engine
+  # of cells.yml, a name selects one engine, and a published cell is dropped.
   plan:
-    name: Pick the engine and the lilbee commit
+    name: Plan the cells and pick the lilbee commit
     runs-on: ubuntu-latest
-    timeout-minutes: 5
+    timeout-minutes: 20
+    env:
+      GH_TOKEN: ${{ github.token }}
     outputs:
-      engine: ${{ inputs.engine }}
       lilbee_ref: ${{ steps.pin.outputs.ref }}
       lilbee_tag: ${{ steps.pin.outputs.tag }}
       lilbee_commit: ${{ steps.pin.outputs.commit }}
@@ -46,25 +50,37 @@ jobs:
       mistralrs: ${{ steps.plan.outputs.mistralrs }}
       tei: ${{ steps.plan.outputs.tei }}
       ik: ${{ steps.plan.outputs.ik }}
+      any: ${{ steps.plan.outputs.any }}
     steps:
       - uses: actions/checkout@v7
       - id: pin
         run: bash scripts/lilbee_ref.sh >> "$GITHUB_OUTPUT"
+      - name: List the published wheels
+        run: bash scripts/published.sh > published.txt
       # Each job reads its matrix from cells.yml through scripts/plan.sh. An engine that the run does not select gets [].
       - id: plan
         env:
           ENGINE: ${{ inputs.engine }}
         run: |
           set -euo pipefail
-          plan="$(bash scripts/plan.sh "${ENGINE}")"
-          for engine in llama mistralrs tei ik; do
-            echo "${engine}=$(jq -c ".${engine}" <<< "${plan}")"
-          done >> "$GITHUB_OUTPUT"
+          bash scripts/plan.sh "${ENGINE}" "" cells.yml published.txt > plan.json
+          jq -r 'to_entries[] | "\(.key)=\(.value | tojson)"' plan.json >> "$GITHUB_OUTPUT"
+          echo "any=$(jq 'any(.[]; length > 0)' plan.json)" >> "$GITHUB_OUTPUT"
+      - uses: actions/checkout@v7
+        with:
+          repository: tobocop2/lilbee
+          ref: ${{ steps.pin.outputs.ref }}
+          path: lilbee
+          persist-credentials: false
+      - uses: astral-sh/setup-uv@v7
+      # A cell whose declared licence lilbee would refuse fails the run before any build starts.
+      - name: Screen the licence of each planned cell
+        run: uv run --project lilbee --locked --no-dev python lilbee/tools/check_pack_licences.py terms plan.json
 
   cell:
     name: ${{ matrix.cell }}
     needs: plan
-    if: needs.plan.outputs.engine == 'all' || needs.plan.outputs.engine == 'llama'
+    if: needs.plan.outputs.llama != '[]'
     runs-on: ${{ matrix.runner }}
     timeout-minutes: ${{ matrix.timeout }}
     strategy:
@@ -138,7 +154,7 @@ jobs:
   mistralrs:
     name: ${{ matrix.cell }}
     needs: plan
-    if: needs.plan.outputs.engine == 'all' || needs.plan.outputs.engine == 'mistralrs'
+    if: needs.plan.outputs.mistralrs != '[]'
     runs-on: ${{ matrix.runner }}
     timeout-minutes: ${{ matrix.timeout }}
     strategy:
@@ -193,7 +209,7 @@ jobs:
   tei:
     name: ${{ matrix.cell }}
     needs: plan
-    if: needs.plan.outputs.engine == 'tei'
+    if: needs.plan.outputs.tei != '[]'
     runs-on: ${{ matrix.runner }}
     timeout-minutes: ${{ matrix.timeout }}
     strategy:
@@ -248,7 +264,7 @@ jobs:
   ik:
     name: ik-${{ matrix.cell }}
     needs: plan
-    if: needs.plan.outputs.engine == 'ik'
+    if: needs.plan.outputs.ik != '[]'
     runs-on: ubuntu-22.04
     timeout-minutes: 350
     strategy:
@@ -293,9 +309,10 @@ jobs:
   publish:
     name: Publish the release
     needs: [plan, cell, mistralrs, tei, ik]
-    # The job runs after skipped build jobs (an engine the run did not select). The first step then fails on any
+    # The job runs after skipped build jobs (an engine with no planned cell). The first step then fails on any
     # cancelled or failed job, which a job condition cannot test without also blocking on the skipped ones.
-    if: ${{ inputs.publish && !cancelled() }}
+    # A plan with no cell, where every selected cell is published, publishes nothing.
+    if: ${{ inputs.publish && !cancelled() && needs.plan.outputs.any == 'true' }}
     runs-on: ubuntu-latest
     timeout-minutes: 60
     permissions:
@@ -309,15 +326,25 @@ jobs:
         with:
           persist-credentials: false
       - name: Require every build job to have succeeded
-        run: bash scripts/needs_ok.sh "${NEEDS}" "${ENGINE}"
+        run: bash scripts/needs_ok.sh "${NEEDS}"
         env:
           NEEDS: ${{ toJSON(needs) }}
-          ENGINE: ${{ inputs.engine }}
       - uses: actions/download-artifact@v8
         with:
           path: packs
           pattern: "*-pack-*"
           merge-multiple: true
+
+      - uses: actions/checkout@v7
+        with:
+          repository: tobocop2/lilbee
+          ref: ${{ needs.plan.outputs.lilbee_ref }}
+          path: lilbee
+          persist-credentials: false
+      - uses: astral-sh/setup-uv@v7
+      # The release ships only wheels that lilbee engine install accepts. A refusal stops the job before any write.
+      - name: Check each wheel as lilbee engine install does
+        run: uv run --project lilbee --locked --no-dev python lilbee/tools/check_pack_licences.py wheels packs
 
       - name: Create the release and upload the wheels
         run: bash scripts/publish.sh packs "${SUFFIX}" "${LILBEE_TAG}" "${LILBEE_COMMIT}"

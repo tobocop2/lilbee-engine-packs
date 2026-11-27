@@ -9,7 +9,8 @@ setup() {
   use_stubs uname
   PACKS="${BATS_TEST_TMPDIR}/packs"
   mkdir -p "${PACKS}/scripts"
-  cp "${REPO_ROOT}/scripts/pack.sh" "${REPO_ROOT}/scripts/lilbee_ref.sh" "${PACKS}/scripts/"
+  cp "${REPO_ROOT}/scripts/pack.sh" "${REPO_ROOT}/scripts/lilbee_ref.sh" "${REPO_ROOT}/scripts/wheel_name.bash" \
+    "${PACKS}/scripts/"
   SCRIPT="${PACKS}/scripts/pack.sh"
   echo pin-9 > "${PACKS}/LILBEE_REF"
   cat > "${PACKS}/cells.yml" <<'YML'
@@ -18,25 +19,36 @@ engines:
   mistralrs:
     pins: {MISTRALRS_TAG: v0.9.5, MACOSX_DEPLOYMENT_TARGET: '14.0'}
     cells:
-      - {cell: mistralrs-linux, backend: cpu, runner: ubuntu-22.04, platform: manylinux_2_35_x86_64, rust_target: t, timeout: 60}
-      - {cell: mistralrs-mac, backend: metal, runner: macos-15, platform: macosx_11_0_arm64, rust_features: metal, timeout: 45}
-      - {cell: mistralrs-win, backend: cpu, runner: windows-2022, platform: win_amd64, timeout: 45}
+      - {cell: mistralrs-linux, build_number: 2, backend: cpu, runner: ubuntu-22.04, platform: manylinux_2_35_x86_64, rust_target: t, timeout: 60}
+      - {cell: mistralrs-mac, build_number: 2, backend: metal, runner: macos-15, platform: macosx_11_0_arm64, rust_features: metal, timeout: 45}
+      - {cell: mistralrs-win, build_number: 2, backend: cpu, runner: windows-2022, platform: win_amd64, timeout: 45}
   llama:
-    pins: {UPSTREAM_TAG: b1}
+    pins: {UPSTREAM_TAG: b1, WHEEL_VERSION: 1.1.1}
     cells:
       - {cell: linux-cpu, backend: cpu, platform: manylinux_2_34_x86_64, license: MIT AND BSD, build_number: 3}
   ik:
-    pins: {PLATFORM: manylinux_2_34_x86_64}
+    pins: {UPSTREAM_COMMIT: 13cffc006b82e03e4d89cbb8c7327f0255ae3d18, PLATFORM: manylinux_2_34_x86_64}
     cells:
       - {cell: linux-cpu, backend: cpu, build_number: 4}
   tei:
-    pins: {TEI_TAG: v1}
+    pins: {TEI_TAG: v1, WHEEL_VERSION: '1.0'}
     cells:
-      - {cell: tei-linux, os: linux, cc: '80', backend: cuda, platform: manylinux_2_34_x86_64}
+      - {cell: tei-linux, build_number: 1, os: linux, cc: '80', backend: cuda-sm80, platform: manylinux_2_34_x86_64}
 YML
   export LILBEE_REPO="${BATS_TEST_TMPDIR}/lilbee-origin"
   mkdir -p "${LILBEE_REPO}/tools/wheel-build" "${LILBEE_REPO}/packaging"
-  local recipe='env > "${OUT}/env.txt"; pwd > "${OUT}/pwd.txt"; umask > "${OUT}/umask.txt"; [ ! -e fail ]'
+  # Each stand-in recipe writes its variables, and the wheel that the recipe of its engine names from them.
+  local recipe
+  recipe="$(cat <<'SH'
+env > "${OUT}/env.txt"; pwd > "${OUT}/pwd.txt"; umask > "${OUT}/umask.txt"
+if [ -n "${MISTRALRS_TAG:-}" ]; then dist=lilbee_engine_mistral_rs; version="${MISTRALRS_TAG#v}"
+elif [ -n "${UPSTREAM_COMMIT:-}" ]; then dist=lilbee_engine_ik_llama_cpp; version="0+git${UPSTREAM_COMMIT:0:12}"
+elif [ -n "${TEI_TAG:-}" ]; then dist=lilbee_engine_tei; version="${WHEEL_VERSION}"
+else dist=lilbee_engine_llama_cpp; version="${WHEEL_VERSION}"; fi
+: > "${OUT}/${dist}-${version}-${BUILD_NUMBER}.${BACKEND//-/_}-py3-none-${PLATFORM}.whl"
+[ ! -e fail ]
+SH
+)"
   local engine
   for engine in mistralrs ik tei; do
     printf '%s\n' "${recipe}" > "${LILBEE_REPO}/tools/wheel-build/pack_${engine}.sh"
@@ -258,6 +270,53 @@ value() {  # key
   run bash "${SCRIPT}" mistralrs-linux
   [ "$status" -eq 1 ]
   [[ "$output" == *"holds files of an earlier build"* ]]
+}
+
+# recipe_writes <wheel>...: the mistralrs recipe of the stand-in writes these wheels and no other.
+recipe_writes() {
+  local name line='env > "${OUT}/env.txt"'
+  for name in "$@"; do line+="; : > \"\${OUT}/${name}\""; done
+  printf '%s\n' "${line}" > "${LILBEE_REPO}/tools/wheel-build/pack_mistralrs.sh"
+  git -C "${LILBEE_REPO}" add tools/wheel-build/pack_mistralrs.sh
+  commit "recipe"
+  git -C "${LILBEE_REPO}" tag -f pin-9
+}
+
+@test "the wheel that the recipe writes has the name of the rule" {
+  run bash "${SCRIPT}" mistralrs-linux
+  [ "$status" -eq 0 ]
+  [ -e "${PACKS}/dist/mistralrs-linux/lilbee_engine_mistral_rs-0.9.5-2.cpu-py3-none-manylinux_2_35_x86_64.whl" ]
+}
+
+@test "a recipe that writes another wheel name fails and names both names" {
+  recipe_writes lilbee_engine_mistral_rs-0.9.5-3.cpu-py3-none-manylinux_2_35_x86_64.whl
+  run bash "${SCRIPT}" mistralrs-linux
+  [ "$status" -eq 1 ]
+  [[ "$output" == *"wrote [lilbee_engine_mistral_rs-0.9.5-3.cpu-py3-none-manylinux_2_35_x86_64.whl]"* ]]
+  [[ "$output" == *"the plan names lilbee_engine_mistral_rs-0.9.5-2.cpu-py3-none-manylinux_2_35_x86_64.whl"* ]]
+}
+
+@test "a recipe that writes no wheel fails" {
+  recipe_writes
+  run bash "${SCRIPT}" mistralrs-linux
+  [ "$status" -eq 1 ]
+  [[ "$output" == *"wrote []"* ]]
+}
+
+@test "a recipe that writes a second wheel beside the named one fails" {
+  recipe_writes lilbee_engine_mistral_rs-0.9.5-2.cpu-py3-none-manylinux_2_35_x86_64.whl \
+    lilbee_engine_mistral_rs-0.9.5-2.cuda_sm80-py3-none-manylinux_2_35_x86_64.whl
+  run bash "${SCRIPT}" mistralrs-linux
+  [ "$status" -eq 1 ]
+  [[ "$output" == *"the plan names"* ]]
+}
+
+@test "a cell with no build number fails before the recipe runs" {
+  yq -i '.engines.mistralrs.cells[0] |= del(.build_number)' "${PACKS}/cells.yml"
+  run bash "${SCRIPT}" mistralrs-linux
+  [ "$status" -ne 0 ]
+  [[ "$output" == *"the cell mistralrs-linux of mistralrs has no build_number"* ]]
+  [ ! -e "${PACKS}/dist/mistralrs-linux" ]
 }
 
 @test "every cell of cells.yml has one id" {
