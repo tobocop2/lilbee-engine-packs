@@ -18,5 +18,7 @@ if [ -z "${GITHUB_REPOSITORY:-}" ]; then
   exit 2
 fi
 
+# The jq expression is for gh, so the shell must not expand it.
+# shellcheck disable=SC2016
 gh api "repos/${GITHUB_REPOSITORY}/releases" --paginate \
   --jq '.[] | .tag_name as $tag | .assets[] | "\(.name) \($tag)"'

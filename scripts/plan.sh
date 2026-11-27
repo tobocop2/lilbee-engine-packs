@@ -69,7 +69,7 @@ if [ -n "${skipped}" ]; then
   echo "${skipped}" >&2
   {
     echo "Published cells that the run does not build:"
-    sed 's/^/- /' <<< "${skipped}"
+    while IFS= read -r line; do echo "- ${line}"; done <<< "${skipped}"
   } >> "${GITHUB_STEP_SUMMARY:-/dev/null}"
 fi
 

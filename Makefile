@@ -55,7 +55,7 @@ tools:
 	  || { echo "make: actionlint $(ACTIONLINT_VERSION) is required (scripts/install_lint_tools.sh installs it)" >&2; exit 1; }
 
 lint: tools
-	shellcheck scripts/*.sh tests/*.bash tests/stubs/*
+	shellcheck scripts/*.sh scripts/*.bash tests/*.bash tests/stubs/*
 	actionlint .github/workflows/*.yml
 
 test: tools
