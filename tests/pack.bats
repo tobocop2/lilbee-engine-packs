@@ -53,6 +53,10 @@ SH
   for engine in mistralrs ik tei; do
     printf '%s\n' "${recipe}" > "${LILBEE_REPO}/tools/wheel-build/pack_${engine}.sh"
   done
+  # The mlx recipe takes its version from MLX_LM_VERSION of engines/mlx.env in lilbee (0.32.2 at the pinned tag),
+  # not from cells.yml.
+  printf '%s\n' ': > "${OUT}/lilbee_engine_mlx-0.32.2-${BUILD_NUMBER}.${BACKEND}-py3-none-${PLATFORM}.whl"' \
+    > "${LILBEE_REPO}/tools/wheel-build/pack_mlx.sh"
   echo 'dist/' > "${LILBEE_REPO}/.gitignore"
   echo wheel > "${LILBEE_REPO}/packaging/project"
   git -C "${LILBEE_REPO}" init -q -b main
@@ -317,6 +321,21 @@ recipe_writes() {
   [ "$status" -ne 0 ]
   [[ "$output" == *"the cell mistralrs-linux of mistralrs has no build_number"* ]]
   [ ! -e "${PACKS}/dist/mistralrs-linux" ]
+}
+
+@test "the mlx cell of cells.yml names the wheel that the mlx recipe writes" {
+  cp "${REPO_ROOT}/cells.yml" "${PACKS}/cells.yml"
+  STUB_UNAME_S=Darwin STUB_UNAME_M=arm64 run bash "${SCRIPT}" mlx-macos-arm64-metal
+  [ "$status" -eq 0 ]
+  [ -e "${PACKS}/dist/mlx-macos-arm64-metal/lilbee_engine_mlx-0.32.2-1.metal-py3-none-macosx_14_0_arm64.whl" ]
+}
+
+@test "an mlx WHEEL_VERSION that is not the version of the recipe fails the pack" {
+  cp "${REPO_ROOT}/cells.yml" "${PACKS}/cells.yml"
+  yq -i '.engines.mlx.pins.WHEEL_VERSION = "0.32.1"' "${PACKS}/cells.yml"
+  STUB_UNAME_S=Darwin STUB_UNAME_M=arm64 run bash "${SCRIPT}" mlx-macos-arm64-metal
+  [ "$status" -eq 1 ]
+  [[ "$output" == *"the plan names lilbee_engine_mlx-0.32.1-1.metal-py3-none-macosx_14_0_arm64.whl"* ]]
 }
 
 @test "every cell of cells.yml has one id" {
