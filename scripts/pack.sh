@@ -6,7 +6,8 @@
 # <id> is the cell name, or the engine name and the cell name joined by a dash (ik-linux-x86_64-cpu).
 # The script exports the cell and the pins of its engine, gets the lilbee tree of the tag in LILBEE_REF,
 # and runs tools/wheel-build/pack_<engine>.sh of that tree with OUT set to the output folder.
-# It exits 2 when this computer cannot build the cell.
+# It exits 2 when this computer cannot build the cell. It fails when the output folder holds another
+# engine wheel than the one file that scripts/wheel_name.bash names for the cell.
 #
 #   LILBEE_DIR    a lilbee checkout to build in. It must be clean and at the commit of the tag.
 #                 Without it, the script clones the tag into a new folder under .work/.
@@ -41,6 +42,11 @@ esac
 selected="$(jq -c '.[0]' <<< "${found}" | tr -d '\r')"
 id="$(jq -r '.id' <<< "${selected}" | tr -d '\r')"
 engine="$(jq -r '.engine' <<< "${selected}" | tr -d '\r')"
+# The name that scripts/plan.sh looks up in the releases to skip a published cell. The recipe must write it.
+# shellcheck source=scripts/wheel_name.bash
+source "${root}/scripts/wheel_name.bash"
+wheel="$(jq -r "${WHEEL_NAME_JQ}"' .pins as $pins | .cell | wheel_name($engine; $pins)' \
+  --arg engine "${engine}" <<< "${selected}" | tr -d '\r')"
 
 # A key that only other cells of the engine have is empty, as it is in a job matrix.
 # CC names the C compiler and OS the operating system in many tools, so those keys keep other names.
@@ -102,6 +108,13 @@ if [ -d "${out}" ] && [ -n "$(ls -A "${out}")" ]; then
 fi
 mkdir -p "${out}"
 (cd "${tree}" && OUT="${out}" bash "${recipe}")
+
+shopt -s nullglob
+built=("${out}"/lilbee_engine_*.whl)
+shopt -u nullglob
+if [ "${#built[@]}" -ne 1 ] || [ "${built[0]}" != "${out}/${wheel}" ]; then
+  fail 1 "the recipe of ${id} wrote [${built[*]##*/}], and the plan names ${wheel}, so a run would not skip the cell once it is published. Correct the cell or scripts/wheel_name.bash."
+fi
 
 sha256="sha256sum"
 command -v sha256sum >/dev/null || sha256="shasum -a 256"

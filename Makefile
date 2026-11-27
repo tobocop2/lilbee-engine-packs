@@ -13,6 +13,7 @@ LILBEE_TESTS := tests/test_ik_llama_adapter.py tests/test_llama_pack_backend.py 
 
 ENGINE ?= all
 CELL ?=
+PUBLISHED ?=
 
 REPO ?= tobocop2/lilbee-engine-packs
 DIR ?= dist
@@ -35,8 +36,9 @@ publish-dry:
 	GITHUB_REPOSITORY="$(REPO)" bash scripts/publish.sh --dry-run "$(DIR)" "$(SUFFIX)" "$$tag" "$$commit"
 
 # Print the matrix JSON that build-packs.yml uses: make plan ENGINE=tei CELL=tei-linux-x86_64-cpu
+# PUBLISHED names the list of published wheels, as scripts/published.sh writes it. The plan then drops those cells.
 plan:
-	@bash scripts/plan.sh "$(ENGINE)" "$(CELL)"
+	@bash scripts/plan.sh "$(ENGINE)" "$(CELL)" cells.yml "$(PUBLISHED)"
 
 # Build and check one cell into dist/<id>/ on this computer: make pack CELL=mistralrs-linux-x86_64-cpu
 pack:
