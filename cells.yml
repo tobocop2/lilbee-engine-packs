@@ -278,7 +278,7 @@ engines:
         backend: cuda
         license: MIT AND LicenseRef-NVIDIA-CUDA-EULA
   # The other pins of the mlx pack are in engines/mlx.env of the lilbee tree. WHEEL_VERSION is its MLX_LM_VERSION;
-  # the recipe stops when its wheel has another version.
+  # scripts/pack.sh stops when the recipe writes a wheel of another version.
   mlx:
     pins:
       WHEEL_VERSION: 0.32.2
